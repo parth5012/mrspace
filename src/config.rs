@@ -28,7 +28,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        const MOD: u32 = 2 | 4; // Ctrl+Shift
+        const MOD: u32 = 2 | 1; // Ctrl+Alt
         let mut hk = Vec::new();
         let add = |hk: &mut Vec<Hotkey>, name: &str, vk: u32, action: &str| {
             hk.push(Hotkey { name: name.into(), modifiers: MOD, vk, action: action.into() });
