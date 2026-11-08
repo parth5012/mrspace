@@ -8,15 +8,8 @@ use std::thread;
 pub fn run(cfg: Config) {
     crate::resize::init();
     crate::tiling::init();
+    crate::hook::start();
     let port = cfg.ipc_port;
-    // hotkey thread
-    let cfg_clone = cfg.clone();
-    thread::spawn(move || {
-        let loop_ = crate::hotkeys::HotkeyLoop::register(&cfg_clone);
-        loop_.run(&cfg_clone, move |action| {
-            handle_action(action);
-        });
-    });
 
     // ipc server
     let listener = match TcpListener::bind(format!("127.0.0.1:{port}")) {
@@ -109,6 +102,10 @@ fn dispatch(cmd: &str) -> String {
 }
 
 fn handle_action(action: &str) {
+    execute_action(action);
+}
+
+pub fn execute_action(action: &str) {
     // resize mode: arrows nudge instead of pin
     let rm = crate::resize::is_active();
     match action {

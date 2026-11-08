@@ -72,6 +72,8 @@ pub fn move_to_prev_desktop() {
     move_to_adjacent(false);
 }
 
+pub fn noop(_vk: u32) {}
+
 fn move_to_adjacent(next: bool) {
     let hwnd = win32::foreground();
     if hwnd.is_null() { return; }

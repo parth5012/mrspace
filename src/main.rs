@@ -4,6 +4,7 @@ mod desktop;
 mod error;
 mod focus;
 mod hotkeys;
+mod hook;
 mod layout;
 mod layouts;
 mod palette;

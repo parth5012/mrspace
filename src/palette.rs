@@ -1,11 +1,16 @@
 use crate::daemon;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Graphics::Gdi::{
+    FillRect, CreateSolidBrush,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostQuitMessage, RegisterClassW,
     SendMessageW, ShowWindow, TranslateMessage, CW_USEDEFAULT, LB_ADDSTRING, LB_GETCURSEL,
-    LB_GETTEXT, LB_GETTEXTLEN, LB_RESETCONTENT, MSG, WM_COMMAND, WM_DESTROY, WM_KEYDOWN,
-    WNDCLASSW, WS_BORDER, WS_CHILD, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    LB_GETTEXT, LB_GETTEXTLEN, LB_RESETCONTENT, LB_SETTOPINDEX, LB_SETCURSEL, MSG, WM_COMMAND,
+    WM_DESTROY, WM_ERASEBKGND,
+    WM_KEYDOWN, WNDCLASSW, WS_CHILD, WS_VISIBLE, WS_EX_TOPMOST, WS_EX_TOOLWINDOW, WS_POPUP,
+    GWL_STYLE,
 };
 
 static SEARCH_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -13,6 +18,12 @@ static LIST_HWND: AtomicIsize = AtomicIsize::new(0);
 
 const VK_RETURN: u32 = 0x0D;
 const VK_ESCAPE: u32 = 0x1B;
+const VK_UP: u32 = 0x26;
+const VK_DOWN: u32 = 0x28;
+
+const BG: u32 = 0x1E1E1E;
+const FG: u32 = 0xE0E0E0;
+const ACCENT: u32 = 0x7C4DFF;
 
 const COMMANDS: &[(&str, &str)] = &[
     ("Pin left half", "pin-left"),
@@ -22,16 +33,6 @@ const COMMANDS: &[(&str, &str)] = &[
     ("Maximize", "maximize"),
     ("Auto-fit all (grid)", "fit-all"),
     ("Toggle tiling mode", "toggle-tiling"),
-    ("Layout: grid", "layout grid"),
-    ("Layout: columns-2", "layout columns-2"),
-    ("Layout: columns-3", "layout columns-3"),
-    ("Layout: rows-2", "layout rows-2"),
-    ("Layout: main-left", "layout main-left"),
-    ("Layout: main-right", "layout main-right"),
-    ("Layout: main-top", "layout main-top"),
-    ("Layout: main-bottom", "layout main-bottom"),
-    ("Layout: focus", "layout focus"),
-    ("Layout: cycle", "layout-cycle"),
     ("Focus left", "focus-left"),
     ("Focus down", "focus-down"),
     ("Focus up", "focus-up"),
@@ -43,6 +44,16 @@ const COMMANDS: &[(&str, &str)] = &[
     ("Prev desktop", "prev-desktop"),
     ("Move to next desktop", "move-next-desktop"),
     ("Move to prev desktop", "move-prev-desktop"),
+    ("Layout: grid", "layout grid"),
+    ("Layout: columns-2", "layout columns-2"),
+    ("Layout: columns-3", "layout columns-3"),
+    ("Layout: rows-2", "layout rows-2"),
+    ("Layout: main-left", "layout main-left"),
+    ("Layout: main-right", "layout main-right"),
+    ("Layout: main-top", "layout main-top"),
+    ("Layout: main-bottom", "layout main-bottom"),
+    ("Layout: focus", "layout focus"),
+    ("Layout: cycle", "layout-cycle"),
     ("List windows", "list-windows"),
     ("Current desktop", "current-desktop"),
     ("Settings", "settings"),
@@ -56,19 +67,25 @@ pub fn show() {
         wc.lpszClassName = cls.as_ptr();
         RegisterClassW(&wc);
 
-        let title: Vec<u16> = "Mr. Space — Command Palette\0".encode_utf16().collect();
+        let title: Vec<u16> = "Mr. Space\0".encode_utf16().collect();
+        // center on screen
+        let sw = windows_sys::Win32::UI::WindowsAndMessaging::GetSystemMetrics(0) as i32;
+        let sh = windows_sys::Win32::UI::WindowsAndMessaging::GetSystemMetrics(1) as i32;
+        let x = (sw - 520) / 2;
+        let y = (sh - 420) / 3;
         let hwnd = CreateWindowExW(
-            0, cls.as_ptr(), title.as_ptr(),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            CW_USEDEFAULT, CW_USEDEFAULT, 420, 360,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            cls.as_ptr(), title.as_ptr(),
+            WS_POPUP | WS_VISIBLE,
+            x, y, 520, 420,
             0 as HWND, 0 as _, 0 as _, std::ptr::null(),
         );
 
         let edit_cls: Vec<u16> = "EDIT\0".encode_utf16().collect();
         let search = CreateWindowExW(
-            0, edit_cls.as_ptr(), std::ptr::null(),
-            WS_CHILD | WS_VISIBLE | WS_BORDER,
-            10, 10, 390, 24,
+            0x00000000, edit_cls.as_ptr(), std::ptr::null(),
+            WS_CHILD | WS_VISIBLE,
+            16, 16, 488, 32,
             hwnd, 0 as _, 0 as _, std::ptr::null(),
         );
         SEARCH_HWND.store(search as isize, Ordering::SeqCst);
@@ -76,20 +93,18 @@ pub fn show() {
         let list_cls: Vec<u16> = "LISTBOX\0".encode_utf16().collect();
         let list = CreateWindowExW(
             0, list_cls.as_ptr(), std::ptr::null(),
-            WS_CHILD | WS_VISIBLE | WS_BORDER,
-            10, 40, 390, 290,
+            WS_CHILD | WS_VISIBLE,
+            16, 56, 488, 340,
             hwnd, 0 as _, 0 as _, std::ptr::null(),
         );
         LIST_HWND.store(list as isize, Ordering::SeqCst);
 
-        // populate
         for (label, _) in COMMANDS {
             let w: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
             SendMessageW(list, LB_ADDSTRING, 0, w.as_ptr() as LPARAM);
         }
 
         ShowWindow(hwnd, 5); // SW_SHOW
-
         let mut msg: MSG = std::mem::zeroed();
         loop {
             let r = GetMessageW(&mut msg, 0 as HWND, 0, 0);
@@ -111,6 +126,7 @@ fn filter_list(search_text: &str) {
                 SendMessageW(list, LB_ADDSTRING, 0, w.as_ptr() as LPARAM);
             }
         }
+        SendMessageW(list, LB_SETCURSEL, 0, 0);
     }
 }
 
@@ -118,7 +134,6 @@ fn run_selected() {
     unsafe {
         let list = LIST_HWND.load(Ordering::SeqCst) as HWND;
         let idx = SendMessageW(list, LB_GETCURSEL, 0, 0) as usize;
-        // get text
         let len = SendMessageW(list, LB_GETTEXTLEN, idx, 0) as usize;
         let mut buf = vec![0u16; len + 1];
         SendMessageW(list, LB_GETTEXT, idx, buf.as_mut_ptr() as LPARAM);
@@ -133,12 +148,9 @@ fn run_selected() {
 }
 
 unsafe extern "system" fn palette_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    use windows_sys::Win32::UI::WindowsAndMessaging::*;
     match msg {
         WM_COMMAND => {
-            let id = (wparam & 0xFFFF) as u32;
             let code = ((wparam >> 16) & 0xFFFF) as u32;
-            let _ = id;
             let ctrl = lparam as HWND;
             let search = SEARCH_HWND.load(Ordering::SeqCst) as HWND;
             if ctrl == search {
@@ -146,28 +158,47 @@ unsafe extern "system" fn palette_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
                 let n = windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW(search, buf.as_mut_ptr(), 256);
                 let text = String::from_utf16_lossy(&buf[..n as usize]);
                 filter_list(&text);
-            }
-            if ctrl != search && code == LBN_DBLCLK {
+            } else if code == 2 { // LBN_DBLCLK
                 run_selected();
                 PostQuitMessage(0);
             }
             0
         }
         WM_KEYDOWN => {
-            if wparam as u32 == VK_RETURN {
-                run_selected();
-                PostQuitMessage(0);
-                0
-            } else if wparam as u32 == VK_ESCAPE {
-                PostQuitMessage(0);
-                0
-            } else {
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+            let list = LIST_HWND.load(Ordering::SeqCst) as HWND;
+            match wparam as u32 {
+                VK_RETURN => {
+                    run_selected();
+                    PostQuitMessage(0);
+                    0
+                }
+                VK_ESCAPE => {
+                    PostQuitMessage(0);
+                    0
+                }
+                VK_DOWN => {
+                    let cur = SendMessageW(list, LB_GETCURSEL, 0, 0) as usize;
+                    SendMessageW(list, LB_SETCURSEL, cur + 1, 0);
+                    0
+                }
+                VK_UP => {
+                    let cur = SendMessageW(list, LB_GETCURSEL, 0, 0) as usize;
+                    if cur > 0 { SendMessageW(list, LB_SETCURSEL, cur - 1, 0); }
+                    0
+                }
+                _ => DefWindowProcW(hwnd, msg, wparam, lparam),
             }
         }
         WM_DESTROY => {
             PostQuitMessage(0);
             0
+        }
+        WM_ERASEBKGND => {
+            let brush: windows_sys::Win32::Graphics::Gdi::HBRUSH = CreateSolidBrush(BG);
+            let mut rc: windows_sys::Win32::Foundation::RECT = windows_sys::Win32::Foundation::RECT { left: 0, top: 0, right: 0, bottom: 0 };
+            windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rc);
+            FillRect(lparam as isize as *mut windows_sys::Win32::Graphics::Gdi::HDC as *mut _, &mut rc, brush);
+            1
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
