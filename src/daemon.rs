@@ -7,6 +7,7 @@ use std::thread;
 
 pub fn run(cfg: Config) {
     crate::resize::init();
+    crate::tiling::init();
     let port = cfg.ipc_port;
     // hotkey thread
     let cfg_clone = cfg.clone();
@@ -94,6 +95,7 @@ fn dispatch(cmd: &str) -> String {
         "move-next-desktop" => { crate::desktop::move_to_next_desktop(); "OK".into() }
         "move-prev-desktop" => { crate::desktop::move_to_prev_desktop(); "OK".into() }
         "palette" => { crate::palette::show(); "OK".into() }
+        "toggle-tiling" => { let on = crate::tiling::toggle(); format!("tiling {}", if on {"ON"} else {"OFF"}) }
         other => format!("ERR unknown command: {other}"),
     }
 }
@@ -120,6 +122,7 @@ fn handle_action(action: &str) {
         "move-next-desktop" => crate::desktop::move_to_next_desktop(),
         "move-prev-desktop" => crate::desktop::move_to_prev_desktop(),
         "palette" => crate::palette::show(),
+        "toggle-tiling" => { let _ = crate::tiling::toggle(); },
         _ => {}
     }
 }

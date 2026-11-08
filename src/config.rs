@@ -16,6 +16,7 @@ pub struct Config {
     pub ipc_port: u16,
     pub resize_step: i32,
     pub resize_timeout_ms: u64,
+    pub tiling_interval_ms: u64,
     pub hotkeys: Vec<Hotkey>,
 }
 
@@ -33,6 +34,7 @@ impl Default for Config {
         add(&mut hk, "maximize", 0x4D, "maximize"); // M
         add(&mut hk, "fit-all", 0x47, "fit-all"); // G
         add(&mut hk, "palette", 0x20, "palette"); // Space
+        add(&mut hk, "toggle-tiling", 0x54, "toggle-tiling"); // T
         add(&mut hk, "focus-left", 0x48, "focus-left"); // H
         add(&mut hk, "focus-down", 0x4A, "focus-down"); // J
         add(&mut hk, "focus-up", 0x4B, "focus-up"); // K
@@ -43,7 +45,7 @@ impl Default for Config {
         for i in 1..=9 {
             add(&mut hk, &format!("desktop-{i}"), 0x30 + i as u32, &format!("desktop-{i}"));
         }
-        Self { ipc_port: 17331, resize_step: 10, resize_timeout_ms: 5000, hotkeys: hk }
+        Self { ipc_port: 17331, resize_step: 10, resize_timeout_ms: 5000, tiling_interval_ms: 2000, hotkeys: hk }
     }
 }
 

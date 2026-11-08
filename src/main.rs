@@ -8,6 +8,7 @@ mod layout;
 mod palette;
 mod resize;
 mod settings;
+mod tiling;
 mod virtual_desktop;
 mod win32;
 
@@ -47,6 +48,8 @@ enum Commands {
     Settings,
     /// Open command palette.
     Palette,
+    /// Toggle automatic tiling mode.
+    ToggleTiling,
     /// Focus window to the left (geometric).
     FocusLeft,
     FocusDown,
@@ -70,6 +73,7 @@ fn cfg() -> Config { config::load() }
 
 fn main() {
     resize::init();
+    tiling::init();
     let cli = Cli::parse();
     let c = cfg();
     let p = c.ipc_port;
@@ -129,6 +133,7 @@ fn main() {
             }
         }
         Some(Commands::Palette) => run_or_direct(p, "palette", || palette::show()),
+        Some(Commands::ToggleTiling) => run_or_direct(p, "toggle-tiling", || { let _ = tiling::toggle(); }),
         Some(Commands::FocusLeft) => run_or_direct(p, "focus-left", || focus::focus_direction("left")),
         Some(Commands::FocusDown) => run_or_direct(p, "focus-down", || focus::focus_direction("down")),
         Some(Commands::FocusUp) => run_or_direct(p, "focus-up", || focus::focus_direction("up")),

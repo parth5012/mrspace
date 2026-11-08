@@ -21,6 +21,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("Pin bottom half", "pin-bottom"),
     ("Maximize", "maximize"),
     ("Auto-fit all (grid)", "fit-all"),
+    ("Toggle tiling mode", "toggle-tiling"),
     ("Focus left", "focus-left"),
     ("Focus down", "focus-down"),
     ("Focus up", "focus-up"),
