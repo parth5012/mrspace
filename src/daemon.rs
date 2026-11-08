@@ -63,6 +63,9 @@ fn dispatch(cmd: &str) -> String {
             }
             out
         }
+        "debug-windows" => {
+            win32::debug_windows()
+        }
         "list-desktops" => "not-enumerable (IVirtualDesktopManager only moves windows)\n".into(),
         "send-to" => {
             if parts.len() < 2 { return "ERR usage: send-to <desktop-guid>".into(); }

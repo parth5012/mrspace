@@ -1,10 +1,10 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
-    GetWindowThreadProcessId, IsWindowVisible, MoveWindow, SetForegroundWindow, SetWindowPos,
-    ShowWindow, SW_RESTORE, SW_SHOW, SWP_NOZORDER, SWP_SHOWWINDOW, GWL_EXSTYLE, GWL_STYLE,
-    WS_CAPTION, WS_EX_TOOLWINDOW,
+    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, MoveWindow, SetForegroundWindow,
+    SetWindowPos, ShowWindow, SW_RESTORE, SW_SHOW, SWP_NOZORDER, SWP_SHOWWINDOW, GWL_EXSTYLE,
+    GWL_STYLE, WS_CAPTION, WS_EX_TOOLWINDOW,
 };
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
@@ -66,6 +66,13 @@ pub fn move_resize(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
     }
 }
 
+pub fn class_name(hwnd: HWND) -> String {
+    let mut buf = [0u16; 256];
+    let n = unsafe { GetClassNameW(hwnd, buf.as_mut_ptr(), 256) };
+    if n <= 0 { return String::new(); }
+    OsString::from_wide(&buf[..n as usize]).to_string_lossy().to_string()
+}
+
 pub fn work_area_for(hwnd: HWND) -> RECT {
     use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO};
     let hmon = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
@@ -100,6 +107,38 @@ pub fn is_manageable(hwnd: HWND) -> bool {
         let exstyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
         if style & WS_CAPTION != WS_CAPTION { return false; }
         if exstyle & WS_EX_TOOLWINDOW != 0 { return false; }
+        if exstyle & windows_sys::Win32::UI::WindowsAndMessaging::WS_EX_NOACTIVATE != 0 { return false; }
     }
+    // User exclusion list (substring title match, case-insensitive; plus pid match).
+    let cfg = crate::config::load();
+    let t = title.to_lowercase();
+    for pat in &cfg.exclude_titles {
+        if !pat.is_empty() && t.contains(&pat.to_lowercase()) { return false; }
+    }
+    // Class-based exclusion (widget frameworks like Rainmeter).
+    let cls = class_name(hwnd);
+    for pat in &cfg.exclude_classes {
+        if !pat.is_empty() && cls.eq_ignore_ascii_case(pat) { return false; }
+    }
+    let pid = process_id(hwnd);
+    if cfg.exclude_pids.contains(&pid) { return false; }
     true
+}
+
+pub fn debug_windows() -> String {
+    let mut out = String::new();
+    for h in enum_windows() {
+        let title = window_title(h);
+        unsafe {
+            let style = GetWindowLongPtrW(h, GWL_STYLE) as u32;
+            let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
+            let r = match window_rect(h) { Some(r) => r, None => continue };
+            out.push_str(&format!(
+                "hwnd=0x{:x}|pid={}|{}x{}|style=0x{:08x}|ex=0x{:08x}|class={}|manageable={}|{}\n",
+                h as usize, process_id(h), r.right - r.left, r.bottom - r.top, style, ex,
+                class_name(h), is_manageable(h), title
+            ));
+        }
+    }
+    out
 }

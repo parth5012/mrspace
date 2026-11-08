@@ -17,6 +17,12 @@ pub struct Config {
     pub resize_step: i32,
     pub resize_timeout_ms: u64,
     pub tiling_interval_ms: u64,
+    /// Window titles to never manage (substring, case-insensitive).
+    pub exclude_titles: Vec<String>,
+    /// Window classes to never manage (e.g. Rainmeter skin windows).
+    pub exclude_classes: Vec<String>,
+    /// Process IDs to never manage.
+    pub exclude_pids: Vec<u32>,
     pub hotkeys: Vec<Hotkey>,
 }
 
@@ -46,7 +52,21 @@ impl Default for Config {
         for i in 1..=9 {
             add(&mut hk, &format!("desktop-{i}"), 0x30 + i as u32, &format!("desktop-{i}"));
         }
-        Self { ipc_port: 17331, resize_step: 10, resize_timeout_ms: 5000, tiling_interval_ms: 2000, hotkeys: hk }
+        Self {
+            ipc_port: 17331,
+            resize_step: 10,
+            resize_timeout_ms: 5000,
+            tiling_interval_ms: 2000,
+            exclude_titles: vec![
+                "Program Manager".into(),
+                "Windows Input Experience".into(),
+                "Settings".into(),
+                "Microsoft Text Input Application".into(),
+            ],
+            exclude_classes: vec!["RainmeterMeterWindow".into()],
+            exclude_pids: vec![],
+            hotkeys: hk,
+        }
     }
 }
 
@@ -64,7 +84,6 @@ pub fn load() -> Config {
     let _ = save(&c);
     c
 }
-
 pub fn save(c: &Config) -> Result<()> {
     let p = config_path();
     if let Some(parent) = p.parent() { fs::create_dir_all(parent)?; }
