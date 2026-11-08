@@ -6,6 +6,7 @@ pub fn pin_left(hwnd: windows_sys::Win32::Foundation::HWND) {
     let h = wa.bottom - wa.top;
     win32::restore(hwnd);
     win32::move_resize(hwnd, wa.left, wa.top, w, h);
+    crate::borders::note_window(hwnd);
 }
 
 pub fn pin_right(hwnd: windows_sys::Win32::Foundation::HWND) {
@@ -15,6 +16,7 @@ pub fn pin_right(hwnd: windows_sys::Win32::Foundation::HWND) {
     let h = wa.bottom - wa.top;
     win32::restore(hwnd);
     win32::move_resize(hwnd, wa.left + half, wa.top, w, h);
+    crate::borders::note_window(hwnd);
 }
 
 pub fn pin_top(hwnd: windows_sys::Win32::Foundation::HWND) {
@@ -23,6 +25,7 @@ pub fn pin_top(hwnd: windows_sys::Win32::Foundation::HWND) {
     let h = (wa.bottom - wa.top) / 2;
     win32::restore(hwnd);
     win32::move_resize(hwnd, wa.left, wa.top, w, h);
+    crate::borders::note_window(hwnd);
 }
 
 pub fn pin_bottom(hwnd: windows_sys::Win32::Foundation::HWND) {
@@ -32,12 +35,14 @@ pub fn pin_bottom(hwnd: windows_sys::Win32::Foundation::HWND) {
     let h = (wa.bottom - wa.top) - half;
     win32::restore(hwnd);
     win32::move_resize(hwnd, wa.left, wa.top + half, w, h);
+    crate::borders::note_window(hwnd);
 }
 
 pub fn maximize(hwnd: windows_sys::Win32::Foundation::HWND) {
     let wa = win32::work_area_for(hwnd);
     win32::restore(hwnd);
     win32::move_resize(hwnd, wa.left, wa.top, wa.right - wa.left, wa.bottom - wa.top);
+    crate::borders::note_window(hwnd);
 }
 
 /// Auto-fit: tile all manageable visible windows on the primary monitor into a grid.
@@ -59,5 +64,6 @@ pub fn fit_all() {
         let row = (i as i32) / cols;
         win32::restore(h);
         win32::move_resize(h, wa.left + col * cell_w, wa.top + row * cell_h, cell_w, cell_h);
+        crate::borders::note_window(h);
     }
 }

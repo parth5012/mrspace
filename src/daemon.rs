@@ -9,6 +9,7 @@ pub fn run(cfg: Config) {
     crate::resize::init();
     crate::tiling::init();
     crate::hook::start();
+    crate::borders::start();
     let port = cfg.ipc_port;
 
     // ipc server

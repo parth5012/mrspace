@@ -40,10 +40,14 @@ pub fn toggle() -> bool {
     if new {
         // tile immediately once when turning on
         crate::layout::fit_all();
+        crate::borders::sync_all_managed();
         LAST_COUNT.store(
             crate::win32::enum_windows().into_iter().filter(|&h| crate::win32::is_manageable(h)).count() as u64,
             Ordering::Relaxed,
         );
+    } else {
+        // borders only make sense for mrspace-arranged windows
+        crate::borders::hide_all();
     }
     new
 }

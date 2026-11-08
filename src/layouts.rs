@@ -16,7 +16,7 @@ pub fn apply(name: &str) -> bool {
     let wa = win32::primary_work_area();
     let w = wa.right - wa.left;
     let h = wa.bottom - wa.top;
-    match name {
+    let ok = match name {
         "grid" => { crate::layout::fit_all(); true }
         "columns-2" => { tile_cols(&hwnds, 2, &wa); true }
         "columns-3" => { tile_cols(&hwnds, 3, &wa); true }
@@ -32,7 +32,12 @@ pub fn apply(name: &str) -> bool {
             true
         }
         _ => false,
+    } == true;
+    if ok {
+        // presets re-tile the full window set — refresh the border ring set
+        crate::borders::sync_all_managed();
     }
+    ok
 }
 
 fn tile_cols(hwnds: &[HWND], cols: i32, wa: &windows_sys::Win32::Foundation::RECT) {

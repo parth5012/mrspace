@@ -1,3 +1,4 @@
+mod borders;
 mod config;
 mod daemon;
 mod desktop;

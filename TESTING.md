@@ -2,9 +2,9 @@
 
 Test everything: daemon, hotkeys, layouts, focus, resize, palette, tiling, desktops, exclusions, and the agent CLI.
 
-**Shortcut modifier is `Ctrl+Alt`** (not Ctrl+Shift, which conflicts with common app shortcuts).
+**Shortcut modifier is the `Win` key.**
 
-**Chord mode**: `Ctrl+Alt` is held by a low-level keyboard hook (`WH_KEYBOARD_LL`) — you don't press `Ctrl+Alt+K` as a combo; you *hold* `Ctrl+Alt`, then tap as many action keys as you want, then release. Alt never gets stuck or locks the menu bar.
+**Chord mode**: the Win key is tracked by a low-level keyboard hook (`WH_KEYBOARD_LL`) — you don't press `Win+K` as a combo; you *hold* Win, then tap as many action keys as you want, then release. Tapping Win alone opens the Start menu as usual; only mapped action keys are intercepted while Win is held.
 
 ## 0. Prep (one-time per test session)
 
@@ -38,11 +38,11 @@ Fore­ground each app and press:
 
 | Keys | Expected |
 | --- | --- |
-| `Ctrl+Alt+←` | Window snaps to left half, work-area height |
-| `Ctrl+Alt+→` | Right half |
-| `Ctrl+Alt+↑` | Top half |
-| `Ctrl+Alt+↓` | Bottom half |
-| `Ctrl+Alt+M` | Fills whole work area (not Windows-maximize) |
+| `Win+←` | Window snaps to left half, work-area height |
+| `Win+→` | Right half |
+| `Win+↑` | Top half |
+| `Win+↓` | Bottom half |
+| `Win+M` | Fills whole work area (not Windows-maximize) |
 
 ✅ Expected: window moves once; nothing else moves. Rainmeter unaffected.
 
@@ -58,9 +58,15 @@ Fore­ground each app and press:
 | `... layout main-right` | mirrored |
 | `... layout main-top` / `main-bottom` | horizontal variant |
 | `... layout focus` | foreground only fills screen |
-| `Ctrl+Alt+O` | cycles: grid → columns-2 → columns-3 → rows-2 → main-left → … → focus → grid |
+| `Win+O` | cycles: grid → columns-2 → columns-3 → rows-2 → main-left → … → focus → grid |
 
-✅ Expected: exactly one rearrange per command; pressing `Ctrl+Alt+O` repeatedly walks the list.
+✅ Expected: exactly one rearrange per command; pressing `Win+O` repeatedly walks the list.
+
+**Border highlighting** (new): after any pin/fit-all/preset/tile command, every arranged window gets a thin **grey** ring; the **focused** window's ring turns **purple** (following focus automatically). Rings are click-through and die with the window.
+1. Run `win+fit-all` → all tiles have grey rings.
+2. Click around the tiled windows → the clicked window's ring turns purple, others grey.
+3. Close a window → its ring disappears (watchdog tick, ≤200ms).
+4. `Win+T` (tiling off) → all rings removed.
 
 ## 4. Directional focus (geometric nearest)
 
@@ -68,50 +74,50 @@ Let each app sit somewhere different (no grid), then press with cursor over one 
 
 | Keys | Expected |
 | --- | --- |
-| `Ctrl+Alt+H` | focus switches to the window to the **left** (center-to-center) |
-| `Ctrl+Alt+J` | below |
-| `Ctrl+Alt+K` | above |
-| `Ctrl+Alt+L` | to the **right** |
+| `Win+H` | focus switches to the window to the **left** (center-to-center) |
+| `Win+J` | below |
+| `Win+K` | above |
+| `Win+L` | to the **right** |
 
 ✅ Expected: focus lands on the *nearest* window in that direction; edge case = nothing better exists (no change or no-op).
 
 ## 5. Resize mode
 
-1. Press `Ctrl+Alt+R` → expect a small **"RESIZE MODE (Esc to exit)"** hint appears top-left.
-2. Nudge with `Ctrl+Alt+←/→/↑/↓` (10px steps).
-3. Grow/shrink `Ctrl+Alt+=` / `Ctrl+Alt+-`.
+1. Press `Win+R` → expect a small **"RESIZE MODE (Esc to exit)"** hint appears top-left.
+2. Nudge with `Win+←/→/↑/↓` (10px steps).
+3. Grow/shrink `Win+=` / `Win+-`.
 4. Press `Esc` → hint disappears, mode ends.
-5. Press `Ctrl+Alt+R`, then **do nothing for 5s** → hint disappears (auto-exit).
+5. Press `Win+R`, then **do nothing for 5s** → hint disappears (auto-exit).
 6. While resize mode is ON, note that the same arrow keys nudge — **pinning is suspended** until mode exits.
 
 ## 6. Command palette (gpui, separate process)
 
-1. Press `Ctrl+Alt+Space` → dark popup (560×420, centered) opens **in the foreground** and stays above other windows.
+1. Press `Win+Space` → dark popup (560×420, centered) opens **in the foreground** and stays above other windows.
 2. Type `main` → filters to `main-left/main-right/main-top/main-bottom`; arrows move the highlight, clicks also run.
 3. Press `Enter` → runs selection, palette closes.
 4. `Esc` closes with no action.
 5. While the palette is open, the daemon keeps responding: `mrspace exec "current-desktop"` returns immediately (palette is its own process, IPC unaffected).
-6. Press `Ctrl+Alt+Space` again while open → **no second instance**; the open palette is raised instead (single-instance).
+6. Press `Win+Space` again while open → **no second instance**; the open palette is raised instead (single-instance).
 
 ## 7. Toggle-tiling (auto-fit when you want it)
 
-1. With 3 windows open, press `Ctrl+Alt+T` → grid applied **once**.
+1. With 3 windows open, press `Win+T` → grid applied **once**.
 2. Move/resize a window freely → **gets left alone** (no re-tile on a timer).
 3. Open a new window (launch Notepad) → all re-tile automatically (count changed).
 4. Close Notepad → re-tiles again.
-5. Press `Ctrl+Alt+T` again → auto-tiling OFF; opening windows no longer rearranges anything.
+5. Press `Win+T` again → auto-tiling OFF; opening windows no longer rearranges anything.
 
 ## 8. Virtual desktops
 
 1. `target\release\mrspace.exe exec "current-desktop"` → prints a GUID.
-2. `Ctrl+Alt+N` / `Ctrl+Alt+P` → switches to next/prev desktop (Windows native animation).
+2. `Win+N` / `Win+P` → switches to next/prev desktop (Windows native animation).
 3. `target\release\mrspace.exe exec "move-next-desktop"` → foreground window moves to the next desktop (creates a temp window to read the desktop GUID — you should see no flicker).
-4. `Ctrl+Alt+1..9` → moves foreground to desktop N (best-effort; needs the desktop to exist).
+4. `Win+1..9` → moves foreground to desktop N (best-effort; needs the desktop to exist).
 
 ## 9. Alt/modifier lockout check
 
 1. Open any app, press plain `Alt` → does the in-app menu bar react normally on first press? (yes = good)
-2. Trigger any mrspace hotkey, then immediately type `Alt+F4`-free text in an app → no stuck Alt/Ctrl/Shift.
+
 
 ## 10. Agent / automation interface
 
@@ -127,7 +133,8 @@ target\release\mrspace.exe exec "toggle-tiling"
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Hotkey does nothing | daemon not running, or key taken | restart daemon; read the warning line for the name(s) that failed |
-| Hotkey does something weird in a browser/editor | collision with that app's own `Ctrl+Alt+X` | remap in `%APPDATA%\mrspace\config.json` |
+| Hotkey does something weird in a browser/editor | collision with that app's own `Win+X` | remap in `%APPDATA%\mrspace\config.json` |
+| Run dialog (`Win+R`) and Lock (`Win+L`) don't fire | mrspace claims these keys: `R` = resize-mode, `L` = focus-right | remapped to pass-thru in `src/hook.rs` if you prefer OS behavior |
 | Stuck modifier keys | shouldn't happen (we synthesize key-ups) | if it does, report — known gap |
 | Rainmeter panel got tiled | older build | ensure config has `exclude_classes: ["RainmeterMeterWindow"]`, restart daemon |
 | `.ini` titles in `list-windows` | Rainmeter skins | they're filtered now; verify with `debug-windows` |
