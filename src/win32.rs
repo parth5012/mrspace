@@ -1,9 +1,10 @@
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindowVisible, MoveWindow, SetForegroundWindow, SetWindowPos, ShowWindow, SW_RESTORE,
-    SW_SHOW, SWP_NOZORDER, SWP_SHOWWINDOW,
+    EnumWindows, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW,
+    GetWindowThreadProcessId, IsWindowVisible, MoveWindow, SetForegroundWindow, SetWindowPos,
+    ShowWindow, SW_RESTORE, SW_SHOW, SWP_NOZORDER, SWP_SHOWWINDOW, GWL_EXSTYLE, GWL_STYLE,
+    WS_CAPTION, WS_EX_TOOLWINDOW,
 };
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
@@ -93,5 +94,12 @@ pub fn is_manageable(hwnd: HWND) -> bool {
     let r = match window_rect(hwnd) { Some(r) => r, None => return false };
     let w = r.right - r.left; let h = r.bottom - r.top;
     if w < 50 || h < 50 { return false; }
+    // Require a normal app window: has a title bar, is not a tool/overlay window.
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+        let exstyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        if style & WS_CAPTION != WS_CAPTION { return false; }
+        if exstyle & WS_EX_TOOLWINDOW != 0 { return false; }
+    }
     true
 }
