@@ -11,6 +11,30 @@ pub struct Hotkey {
     pub action: String,
 }
 
+/// Border overlay settings (grey/accent rings around arranged windows).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BorderSettings {
+    /// Draw borders at all.
+    pub enabled: bool,
+    /// Ring thickness in pixels.
+    pub thickness: i32,
+    /// Accent ring (focused window) — hex RRGGBB.
+    pub accent: String,
+    /// Muted ring (other arranged windows) — hex RRGGBB.
+    pub muted: String,
+}
+
+impl Default for BorderSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            thickness: 3,
+            accent: "7C4DFF".into(),
+            muted: "55555E".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub ipc_port: u16,
@@ -23,6 +47,9 @@ pub struct Config {
     pub exclude_classes: Vec<String>,
     /// Process IDs to never manage.
     pub exclude_pids: Vec<u32>,
+    /// Border overlay options.
+    #[serde(default)]
+    pub borders: BorderSettings,
     pub hotkeys: Vec<Hotkey>,
 }
 
@@ -65,6 +92,7 @@ impl Default for Config {
             ],
             exclude_classes: vec!["RainmeterMeterWindow".into()],
             exclude_pids: vec![],
+            borders: Default::default(),
             hotkeys: hk,
         }
     }

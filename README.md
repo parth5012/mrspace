@@ -56,6 +56,7 @@ Tapping Win alone still opens the Start menu, and unmapped Win-combos (Win+D, Wi
 - `src/hotkeys.rs` — global hotkeys via `RegisterHotKey` + message loop.
 - `src/daemon.rs` — background daemon, hotkey thread, TCP IPC server (127.0.0.1:17331).
 - `src/palette.rs` — command palette built with **gpui** (GPU-rendered, separate process).
+- `src/settings.rs` — native settings desktop app (own process; edits the whole config: port, timing, exclusions, borders, full hotkey table).
 - `src/main.rs` — CLI entry + Flow Launcher JSON-RPC bridge (`flow` hidden subcommand).
 - `src/settings.rs` — minimal Win32 settings window.
 - `src/config.rs` — JSON config.
@@ -63,6 +64,17 @@ Tapping Win alone still opens the Start menu, and unmapped Win-combos (Win+D, Wi
 ## Building the palette (gpui)
 
 The gpui Windows build compiles HLSL shaders at build time and needs `fxc.exe` from the Windows 10 SDK. The repo's `.cargo/config.toml` points `GPUI_FXC_PATH` at `D:\WindowsKits\bin\10.0.26100.0\x64\fxc.exe` — adjust if your SDK is elsewhere.
+
+## Settings app
+
+`Win+Space` → `Settings` (palette), `mrspace settings`, or the Flow plugin's Settings row opens a native desktop window in its own process (single-instance: reopening raises the existing window). It edits **every** config.json field:
+
+- IPC port, resize step, resize timeout, tiling interval
+- managed-window exclusions (titles / classes / pids), one per line
+- border overlays: enable toggle, thickness, accent & muted hex colors
+- the full hotkey table: `name|modifiers|vk|action`, one per line (vk hex like `0x25`; modifiers decimal — 1=alt, 2=ctrl, 4=shift, 8=win)
+
+Buttons: **Save** (writes config.json), **Save & Apply** (writes + tells the running daemon to re-read live options — borders change immediately; port/step/timeout take effect as they're used), **Open Config** (explorer at the config folder), **Cancel**.
 
 ## Flow Launcher plugin
 

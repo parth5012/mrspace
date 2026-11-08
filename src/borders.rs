@@ -21,11 +21,48 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_POPUP, WS_VISIBLE, WNDCLASSEXW,
 };
 
-/// Accent ring for the focused window (COLORREF-style 0x00BBGGRR; RGB 0x7C4DFF purple).
-pub const ACCENT: u32 = (0xFF << 16) | (0x4D << 8) | 0x7C;
-/// Muted ring for the non-focused laid-out windows (grey).
-pub const MUTED: u32 = (0x5E << 16) | (0x55 << 8) | 0x55;
-const BORDER_W: i32 = 3;
+/// Runtime-configurable options (loaded from config.json's `borders` block).
+pub struct BorderOptions {
+    pub enabled: bool,
+    pub thickness: i32,
+    pub accent: u32, // COLORREF-style 0x00BBGGRR
+    pub muted: u32,
+}
+
+static OPTS: Mutex<BorderOptions> = Mutex::new(BorderOptions {
+    enabled: true,
+    thickness: 3,
+    accent: (0xFF << 16) | (0x4D << 8) | 0x7C, // purple 7C4DFF
+    muted: (0x5E << 16) | (0x55 << 8) | 0x55,  // grey 55555E
+});
+
+fn opts() -> std::sync::MutexGuard<'static, BorderOptions> {
+    OPTS.lock().unwrap()
+}
+
+/// Parse "RRGGBB" hex into COLORREF-style 0x00BBGGRR (tolerant: '#' allowed).
+pub fn parse_color(s: &str, fallback: u32) -> u32 {
+    let s = s.trim().trim_start_matches('#');
+    if s.len() != 6 {
+        return fallback;
+    }
+    let r = u8::from_str_radix(&s[0..2], 16).ok().unwrap_or(0) as u32;
+    let g = u8::from_str_radix(&s[2..4], 16).ok().unwrap_or(0) as u32;
+    let b = u8::from_str_radix(&s[4..6], 16).ok().unwrap_or(0) as u32;
+    (b << 16) | (g << 8) | r
+}
+
+/// Apply settings from config.json. Disabling removes any existing rings.
+pub fn configure(b: &crate::config::BorderSettings) {
+    let mut g = OPTS.lock().unwrap();
+    g.enabled = b.enabled;
+    g.thickness = b.thickness.clamp(1, 20);
+    g.accent = parse_color(&b.accent, g.accent);
+    g.muted = parse_color(&b.muted, g.muted);
+    if !b.enabled {
+        hide_all();
+    }
+}
 
 const CLASS_NAME: &[u16] = &[
     b'm' as u16, b'r' as u16, b's' as u16, b'p' as u16, b'a' as u16, b'c' as u16, b'e' as u16,
@@ -78,6 +115,10 @@ pub fn start() {
     std::thread::spawn(|| {
         ensure_class();
         loop {
+            if !opts().enabled {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                continue;
+            }
             std::thread::sleep(std::time::Duration::from_millis(200));
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { tick() })).ok();
         }
@@ -174,11 +215,13 @@ unsafe fn tick() {
         }
         let w = r.right - r.left;
         let h = r.bottom - r.top;
-        if w < BORDER_W * 2 || h < BORDER_W * 2 {
+        let th = opts().thickness;
+        let min = th.clamp(1, 20) * 2;
+        if w < min || h < min {
             to_remove.push(*tgt);
             continue;
         }
-        let color = if fg == *tgt { ACCENT } else { MUTED };
+        let color = if fg == *tgt { opts().accent } else { opts().muted };
         if e.overlay == 0 {
             e.overlay = create_overlay(w, h, r.left, r.top, color);
             if e.overlay != 0 {
@@ -271,7 +314,7 @@ unsafe fn redraw_overlay(hwnd: HWND, w: i32, h: i32, x: i32, y: i32, color: u32)
     // solid color as-is)
     let px = bits as *mut u32;
     let stride = w as usize;
-    let bw = BORDER_W as usize;
+    let bw = opts().thickness.clamp(1, 20) as usize;
     let (cw, ch) = (w as usize, h as usize);
     let fill = color | (0xFFu32 << 24);
     for row in 0..ch {

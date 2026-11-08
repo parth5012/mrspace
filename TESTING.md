@@ -99,7 +99,20 @@ Let each app sit somewhere different (no grid), then press with cursor over one 
 5. While the palette is open, the daemon keeps responding: `mrspace exec "current-desktop"` returns immediately (palette is its own process, IPC unaffected).
 6. Press `Win+Space` again while open → **no second instance**; the open palette is raised instead (single-instance).
 
-## 6b. Flow Launcher plugin (preferred control surface)
+## 6b. Settings app (native, own process)
+
+Open it via the palette's `Settings` row, `mrspace settings`, or the Flow plugin's Settings row.
+
+1. Window opens **in its own process** (2nd mrspace process); daemon stays responsive (`mrspace exec "current-desktop"` returns while it's open).
+2. Open it a second time → no duplicate; the running window is raised instead.
+3. Change border thickness to `6`, click **Save & Apply** → status shows `daemon reloaded`; run `mrspace exec "fit-all"` → rings render at 6px. Set back to `3` when done.
+4. Uncheck **Enable** under Borders, **Save & Apply** → existing rings disappear; re-enable + Apply → they come back on the next layout command.
+5. Add a bogus entries: non-numeric port or a hotkey line `pin-left|3|0x25` (missing the 4th field) → **Save** shows `ERR: ...` and nothing is written.
+6. Edit exclusions: add a window title, **Save & Apply** → that window stops being managed (exclusions are re-read on every manage decision).
+7. `Open Config` button → explorer opens at `%APPDATA%\mrspace\`.
+8. Hotkey table edits are honored after daemon restart (hotkeys are registered at startup; a `#` reload of them is not live).
+
+## 6c. Flow Launcher plugin (preferred control surface)
 
 Installed at `%APPDATA%\FlowLauncher\Plugins\MrSpace\` (same `mrspace.exe` is copied there).
 

@@ -140,13 +140,7 @@ fn main() {
                 }
             }
         }
-        Some(Commands::Settings) => {
-            if daemon::is_daemon_running(p) {
-                let _ = daemon::send_command(p, "settings");
-            } else {
-                settings::show();
-            }
-        }
+        Some(Commands::Settings) => run_or_direct(p, "settings", || settings::show()),
         Some(Commands::Palette) => run_or_direct(p, "palette", || palette::show()),
         Some(Commands::ToggleTiling) => run_or_direct(p, "toggle-tiling", || { let _ = tiling::toggle(); }),
         Some(Commands::Layout { name }) => run_or_direct(p, &format!("layout {name}"), || { let _ = layouts::apply(&name); }),

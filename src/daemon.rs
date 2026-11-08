@@ -9,6 +9,7 @@ pub fn run(cfg: Config) {
     crate::resize::init();
     crate::tiling::init();
     crate::hook::start();
+    crate::borders::configure(&cfg.borders);
     crate::borders::start();
     let port = cfg.ipc_port;
 
@@ -53,6 +54,32 @@ pub fn spawn_palette_process() {
         use std::process::Stdio;
         cmd.stdout(Stdio::from(f.try_clone().unwrap_or_else(|_| {
             std::fs::File::create(std::env::temp_dir().join("mrspace-palette.log")).unwrap()
+        })));
+        cmd.stderr(Stdio::from(f));
+    }
+    let _ = cmd.spawn();
+}
+
+/// Launch the settings app in its own process (same isolations as the
+/// palette). Raises an already-open settings window instead of spawning a
+/// second one.
+pub fn spawn_settings_process() {
+    if crate::settings::raise_settings() {
+        return;
+    }
+    let exe = match std::env::current_exe() { Ok(e) => e, Err(_) => return };
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("settings");
+    cmd.env("MRSPACE_NO_IPC", "1");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    if let Ok(f) = std::fs::File::create(std::env::temp_dir().join("mrspace-settings.log")) {
+        use std::process::Stdio;
+        cmd.stdout(Stdio::from(f.try_clone().unwrap_or_else(|_| {
+            std::fs::File::create(std::env::temp_dir().join("mrspace-settings.log")).unwrap()
         })));
         cmd.stderr(Stdio::from(f));
     }
@@ -132,7 +159,15 @@ fn dispatch(cmd: &str) -> String {
                 Err(e) => format!("ERR {e}")
             }
         }
-        "settings" => { crate::settings::show(); "OK".into() }
+        "settings" => { crate::daemon::spawn_settings_process(); "OK".into() }
+        "reload-config" => {
+            let c = crate::config::load();
+            crate::borders::configure(&c.borders);
+            // note: resize step/timeout and exclusions are re-read from disk
+            // on every use already; borders are the only cached options.
+            format!("reloaded (borders {}, port {})",
+                if c.borders.enabled { "on" } else { "off" }, c.ipc_port)
+        }
         "focus-left" => { crate::focus::focus_direction("left"); "OK".into() }
         "focus-down" => { crate::focus::focus_direction("down"); "OK".into() }
         "focus-up" => { crate::focus::focus_direction("up"); "OK".into() }
@@ -222,6 +257,17 @@ pub fn send_command(port: u16, cmd: &str) -> String {
     let mut line = String::new();
     let _ = r.read_line(&mut line);
     line
+}
+
+/// Non-failing sender for the settings UI: returns None instead of an "ERR"
+/// string when no daemon is listening.
+pub fn try_send_command(port: u16, cmd: &str) -> Option<String> {
+    let r = send_command(port, cmd);
+    if r.starts_with("ERR connect") {
+        None
+    } else {
+        Some(r)
+    }
 }
 
 pub fn is_daemon_running(port: u16) -> bool {
