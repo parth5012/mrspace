@@ -40,17 +40,27 @@ mrspace exec "pin-left"
 
 ## Default hotkeys
 
-`Ctrl+Shift+Left` pin left, `Ctrl+Shift+Right` pin right, `Ctrl+Shift+Up` fit-all, `Ctrl+Shift+Down` maximize. Edit `%APPDATA%\mrspace\config.json`.
+Hold `Ctrl+Alt`, then tap an action key (chord mode — no need to re-press modifiers):
+
+`←` pin left, `→` pin right, `↑` fit-all, `↓` maximize, `Space` command palette.
+
+Edit `%APPDATA%\mrspace\config.json`.
 
 ## Architecture
 
 - `src/win32.rs` — Win32 window enumeration, move/resize, monitor work areas.
 - `src/virtual_desktop.rs` — COM `IVirtualDesktopManager` (move windows across native virtual desktops).
 - `src/layout.rs` — on-demand layouts (pin halves, maximize, auto-fit grid).
+- `src/hook.rs` — hold-`Ctrl+Alt` chord engine via `WH_KEYBOARD_LL` low-level hook.
 - `src/hotkeys.rs` — global hotkeys via `RegisterHotKey` + message loop.
 - `src/daemon.rs` — background daemon, hotkey thread, TCP IPC server (127.0.0.1:17331).
+- `src/palette.rs` — command palette built with **gpui** (GPU-rendered, separate process).
 - `src/settings.rs` — minimal Win32 settings window.
 - `src/config.rs` — JSON config.
+
+## Building the palette (gpui)
+
+The gpui Windows build compiles HLSL shaders at build time and needs `fxc.exe` from the Windows 10 SDK. The repo's `.cargo/config.toml` points `GPUI_FXC_PATH` at `D:\WindowsKits\bin\10.0.26100.0\x64\fxc.exe` — adjust if your SDK is elsewhere.
 
 ## Agent integration
 

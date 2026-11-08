@@ -4,6 +4,8 @@ Test everything: daemon, hotkeys, layouts, focus, resize, palette, tiling, deskt
 
 **Shortcut modifier is `Ctrl+Alt`** (not Ctrl+Shift, which conflicts with common app shortcuts).
 
+**Chord mode**: `Ctrl+Alt` is held by a low-level keyboard hook (`WH_KEYBOARD_LL`) — you don't press `Ctrl+Alt+K` as a combo; you *hold* `Ctrl+Alt`, then tap as many action keys as you want, then release. Alt never gets stuck or locks the menu bar.
+
 ## 0. Prep (one-time per test session)
 
 1. Close/kills competing window managers so nothing fights mrspace:
@@ -82,12 +84,14 @@ Let each app sit somewhere different (no grid), then press with cursor over one 
 5. Press `Ctrl+Alt+R`, then **do nothing for 5s** → hint disappears (auto-exit).
 6. While resize mode is ON, note that the same arrow keys nudge — **pinning is suspended** until mode exits.
 
-## 6. Command palette
+## 6. Command palette (gpui, separate process)
 
-1. Press `Ctrl+Alt+Space` → palette window opens with all actions listed.
-2. Type `main` → filters to `main-left/main-right/main-top/main-bottom`.
+1. Press `Ctrl+Alt+Space` → dark popup (560×420, centered) opens **in the foreground** and stays above other windows.
+2. Type `main` → filters to `main-left/main-right/main-top/main-bottom`; arrows move the highlight, clicks also run.
 3. Press `Enter` → runs selection, palette closes.
 4. `Esc` closes with no action.
+5. While the palette is open, the daemon keeps responding: `mrspace exec "current-desktop"` returns immediately (palette is its own process, IPC unaffected).
+6. Press `Ctrl+Alt+Space` again while open → **no second instance**; the open palette is raised instead (single-instance).
 
 ## 7. Toggle-tiling (auto-fit when you want it)
 
