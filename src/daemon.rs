@@ -96,6 +96,11 @@ fn dispatch(cmd: &str) -> String {
         "move-prev-desktop" => { crate::desktop::move_to_prev_desktop(); "OK".into() }
         "palette" => { crate::palette::show(); "OK".into() }
         "toggle-tiling" => { let on = crate::tiling::toggle(); format!("tiling {}", if on {"ON"} else {"OFF"}) }
+        cmd if cmd.starts_with("layout ") => {
+            let name = cmd.trim_start_matches("layout ").trim();
+            if crate::layouts::apply(name) { format!("layout {name} applied") } else { format!("ERR unknown layout: {name}") }
+        }
+        "layout-cycle" => { let n = crate::layouts::cycle(); format!("layout {n}") }
         other => format!("ERR unknown command: {other}"),
     }
 }
@@ -123,6 +128,7 @@ fn handle_action(action: &str) {
         "move-prev-desktop" => crate::desktop::move_to_prev_desktop(),
         "palette" => crate::palette::show(),
         "toggle-tiling" => { let _ = crate::tiling::toggle(); },
+        "layout-cycle" => { crate::layouts::cycle(); },
         _ => {}
     }
 }

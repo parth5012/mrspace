@@ -5,6 +5,7 @@ mod error;
 mod focus;
 mod hotkeys;
 mod layout;
+mod layouts;
 mod palette;
 mod resize;
 mod settings;
@@ -50,6 +51,10 @@ enum Commands {
     Palette,
     /// Toggle automatic tiling mode.
     ToggleTiling,
+    /// Apply a named layout (grid, columns-2, main-left, ...).
+    Layout { name: String },
+    /// Cycle through layouts.
+    LayoutCycle,
     /// Focus window to the left (geometric).
     FocusLeft,
     FocusDown,
@@ -134,6 +139,8 @@ fn main() {
         }
         Some(Commands::Palette) => run_or_direct(p, "palette", || palette::show()),
         Some(Commands::ToggleTiling) => run_or_direct(p, "toggle-tiling", || { let _ = tiling::toggle(); }),
+        Some(Commands::Layout { name }) => run_or_direct(p, &format!("layout {name}"), || { let _ = layouts::apply(&name); }),
+        Some(Commands::LayoutCycle) => run_or_direct(p, "layout-cycle", || { layouts::cycle(); }),
         Some(Commands::FocusLeft) => run_or_direct(p, "focus-left", || focus::focus_direction("left")),
         Some(Commands::FocusDown) => run_or_direct(p, "focus-down", || focus::focus_direction("down")),
         Some(Commands::FocusUp) => run_or_direct(p, "focus-up", || focus::focus_direction("up")),

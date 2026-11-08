@@ -35,6 +35,7 @@ impl Default for Config {
         add(&mut hk, "fit-all", 0x47, "fit-all"); // G
         add(&mut hk, "palette", 0x20, "palette"); // Space
         add(&mut hk, "toggle-tiling", 0x54, "toggle-tiling"); // T
+        add(&mut hk, "layout-cycle", 0x4F, "layout-cycle"); // O
         add(&mut hk, "focus-left", 0x48, "focus-left"); // H
         add(&mut hk, "focus-down", 0x4A, "focus-down"); // J
         add(&mut hk, "focus-up", 0x4B, "focus-up"); // K
