@@ -27,6 +27,48 @@ pub fn run(cfg: Config) {
     }
 }
 
+/// Launch the palette in its own process. gpui runs its own event loop, so a
+/// dedicated process keeps the daemon, IPC and hook threads free (and a crashed
+/// palette can never wedge the daemon).
+/// If a palette is already open (holds the single-instance mutex), raise it to
+/// the foreground instead — alleviate without stacking duplicate processes.
+pub fn spawn_palette_process() {
+    if raise_existing() {
+        return;
+    }
+    let exe = match std::env::current_exe() { Ok(e) => e, Err(_) => return };
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("palette");
+    // direct mode: otherwise the child would forward "palette" back over IPC
+    // and we'd spawn children forever
+    cmd.env("MRSPACE_NO_IPC", "1");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: no console flash
+    }
+    // trace palette stderr for crash triage (%TEMP%\mrspace-palette.log)
+    if let Ok(f) = std::fs::File::create(std::env::temp_dir().join("mrspace-palette.log")) {
+        use std::process::Stdio;
+        cmd.stdout(Stdio::from(f.try_clone().unwrap_or_else(|_| {
+            std::fs::File::create(std::env::temp_dir().join("mrspace-palette.log")).unwrap()
+        })));
+        cmd.stderr(Stdio::from(f));
+    }
+    let _ = cmd.spawn();
+}
+
+/// Bring an already-open palette window to the foreground. Reads the hwnd
+/// record the palette process published; returns false if none is alive.
+#[cfg(windows)]
+pub fn raise_existing() -> bool {
+    crate::palette::raise_other()
+}
+#[cfg(not(windows))]
+pub fn raise_existing() -> bool {
+    false
+}
+
 fn handle_client(mut stream: TcpStream) {
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut line = String::new();
@@ -90,7 +132,7 @@ fn dispatch(cmd: &str) -> String {
         "prev-desktop" => { crate::desktop::prev_desktop_view(); "OK".into() }
         "move-next-desktop" => { crate::desktop::move_to_next_desktop(); "OK".into() }
         "move-prev-desktop" => { crate::desktop::move_to_prev_desktop(); "OK".into() }
-        "palette" => { crate::palette::show(); "OK".into() }
+        "palette" => { crate::daemon::spawn_palette_process(); "OK".into() }
         "toggle-tiling" => { let on = crate::tiling::toggle(); format!("tiling {}", if on {"ON"} else {"OFF"}) }
         cmd if cmd.starts_with("layout ") => {
             let name = cmd.trim_start_matches("layout ").trim();
@@ -126,7 +168,7 @@ pub fn execute_action(action: &str) {
         "prev-desktop" => crate::desktop::prev_desktop_view(),
         "move-next-desktop" => crate::desktop::move_to_next_desktop(),
         "move-prev-desktop" => crate::desktop::move_to_prev_desktop(),
-        "palette" => crate::palette::show(),
+        "palette" => crate::daemon::spawn_palette_process(),
         "toggle-tiling" => { let _ = crate::tiling::toggle(); },
         "layout-cycle" => { crate::layouts::cycle(); },
         _ => {}

@@ -1,0 +1,5 @@
+# gpui's Windows build script needs fxc.exe (DirectX HLSL compiler) from the
+# Windows 10 SDK. Installed on D: to keep C: lean — point the env at it here so
+# cargo passes it to every build script, including gpui's.
+[env]
+GPUI_FXC_PATH = 'D:\WindowsKits\bin\10.0.26100.0\x64\fxc.exe'

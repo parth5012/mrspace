@@ -165,6 +165,13 @@ fn main() {
 }
 
 fn run_or_direct(p: u16, name: &str, direct: impl FnOnce()) {
+    // Children spawned by the daemon (palette/settings windows) must run the
+    // UI directly — forwarding back over IPC would recurse (child → daemon →
+    // child → …).
+    if std::env::var("MRSPACE_NO_IPC").as_deref() == Ok("1") {
+        direct();
+        return;
+    }
     if daemon::is_daemon_running(p) {
         print!("{}", daemon::send_command(p, name));
     } else {
