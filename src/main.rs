@@ -1,8 +1,12 @@
 mod config;
 mod daemon;
+mod desktop;
 mod error;
+mod focus;
 mod hotkeys;
 mod layout;
+mod palette;
+mod resize;
 mod settings;
 mod virtual_desktop;
 mod win32;
@@ -41,6 +45,21 @@ enum Commands {
     SendTo { desktop: String },
     /// Show settings window.
     Settings,
+    /// Open command palette.
+    Palette,
+    /// Focus window to the left (geometric).
+    FocusLeft,
+    FocusDown,
+    FocusUp,
+    FocusRight,
+    /// Toggle resize mode.
+    ResizeMode,
+    Grow,
+    Shrink,
+    NextDesktop,
+    PrevDesktop,
+    MoveNextDesktop,
+    MovePrevDesktop,
     /// Print config path.
     ConfigPath,
     /// Run a raw command string against the daemon (agent-friendly).
@@ -50,6 +69,7 @@ enum Commands {
 fn cfg() -> Config { config::load() }
 
 fn main() {
+    resize::init();
     let cli = Cli::parse();
     let c = cfg();
     let p = c.ipc_port;
@@ -108,6 +128,18 @@ fn main() {
                 settings::show();
             }
         }
+        Some(Commands::Palette) => run_or_direct(p, "palette", || palette::show()),
+        Some(Commands::FocusLeft) => run_or_direct(p, "focus-left", || focus::focus_direction("left")),
+        Some(Commands::FocusDown) => run_or_direct(p, "focus-down", || focus::focus_direction("down")),
+        Some(Commands::FocusUp) => run_or_direct(p, "focus-up", || focus::focus_direction("up")),
+        Some(Commands::FocusRight) => run_or_direct(p, "focus-right", || focus::focus_direction("right")),
+        Some(Commands::ResizeMode) => run_or_direct(p, "resize-mode", || resize::toggle()),
+        Some(Commands::Grow) => run_or_direct(p, "grow", || resize::grow()),
+        Some(Commands::Shrink) => run_or_direct(p, "shrink", || resize::shrink()),
+        Some(Commands::NextDesktop) => run_or_direct(p, "next-desktop", || desktop::next_desktop_view()),
+        Some(Commands::PrevDesktop) => run_or_direct(p, "prev-desktop", || desktop::prev_desktop_view()),
+        Some(Commands::MoveNextDesktop) => run_or_direct(p, "move-next-desktop", || desktop::move_to_next_desktop()),
+        Some(Commands::MovePrevDesktop) => run_or_direct(p, "move-prev-desktop", || desktop::move_to_prev_desktop()),
         Some(Commands::ConfigPath) => println!("{}", config::path().display()),
         Some(Commands::Exec { command }) => {
             if daemon::is_daemon_running(p) {

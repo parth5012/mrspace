@@ -6,6 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 
 pub fn run(cfg: Config) {
+    crate::resize::init();
     let port = cfg.ipc_port;
     // hotkey thread
     let cfg_clone = cfg.clone();
@@ -81,18 +82,44 @@ fn dispatch(cmd: &str) -> String {
             }
         }
         "settings" => { crate::settings::show(); "OK".into() }
+        "focus-left" => { crate::focus::focus_direction("left"); "OK".into() }
+        "focus-down" => { crate::focus::focus_direction("down"); "OK".into() }
+        "focus-up" => { crate::focus::focus_direction("up"); "OK".into() }
+        "focus-right" => { crate::focus::focus_direction("right"); "OK".into() }
+        "resize-mode" => { crate::resize::toggle(); "OK".into() }
+        "grow" => { crate::resize::grow(); "OK".into() }
+        "shrink" => { crate::resize::shrink(); "OK".into() }
+        "next-desktop" => { crate::desktop::next_desktop_view(); "OK".into() }
+        "prev-desktop" => { crate::desktop::prev_desktop_view(); "OK".into() }
+        "move-next-desktop" => { crate::desktop::move_to_next_desktop(); "OK".into() }
+        "move-prev-desktop" => { crate::desktop::move_to_prev_desktop(); "OK".into() }
+        "palette" => { crate::palette::show(); "OK".into() }
         other => format!("ERR unknown command: {other}"),
     }
 }
 
 fn handle_action(action: &str) {
+    // resize mode: arrows nudge instead of pin
+    let rm = crate::resize::is_active();
     match action {
-        "pin-left" => { let h = win32::foreground(); if !h.is_null() { layout::pin_left(h); } }
-        "pin-right" => { let h = win32::foreground(); if !h.is_null() { layout::pin_right(h); } }
-        "pin-top" => { let h = win32::foreground(); if !h.is_null() { layout::pin_top(h); } }
-        "pin-bottom" => { let h = win32::foreground(); if !h.is_null() { layout::pin_bottom(h); } }
+        "pin-left" => { if rm { crate::resize::nudge("left"); } else { let h = win32::foreground(); if !h.is_null() { layout::pin_left(h); } } }
+        "pin-right" => { if rm { crate::resize::nudge("right"); } else { let h = win32::foreground(); if !h.is_null() { layout::pin_right(h); } } }
+        "pin-top" => { if rm { crate::resize::nudge("up"); } else { let h = win32::foreground(); if !h.is_null() { layout::pin_top(h); } } }
+        "pin-bottom" => { if rm { crate::resize::nudge("down"); } else { let h = win32::foreground(); if !h.is_null() { layout::pin_bottom(h); } } }
         "maximize" => { let h = win32::foreground(); if !h.is_null() { layout::maximize(h); } }
         "fit-all" => layout::fit_all(),
+        "focus-left" => crate::focus::focus_direction("left"),
+        "focus-down" => crate::focus::focus_direction("down"),
+        "focus-up" => crate::focus::focus_direction("up"),
+        "focus-right" => crate::focus::focus_direction("right"),
+        "resize-mode" => crate::resize::toggle(),
+        "grow" => crate::resize::grow(),
+        "shrink" => crate::resize::shrink(),
+        "next-desktop" => crate::desktop::next_desktop_view(),
+        "prev-desktop" => crate::desktop::prev_desktop_view(),
+        "move-next-desktop" => crate::desktop::move_to_next_desktop(),
+        "move-prev-desktop" => crate::desktop::move_to_prev_desktop(),
+        "palette" => crate::palette::show(),
         _ => {}
     }
 }
@@ -131,4 +158,8 @@ pub fn send_command(port: u16, cmd: &str) -> String {
 
 pub fn is_daemon_running(port: u16) -> bool {
     TcpStream::connect(format!("127.0.0.1:{port}")).is_ok()
+}
+
+pub fn run_command(cmd: &str) -> String {
+    dispatch(cmd)
 }
