@@ -93,11 +93,21 @@ Let each app sit somewhere different (no grid), then press with cursor over one 
 ## 6. Command palette (gpui, separate process)
 
 1. Press `Win+Space` → dark popup (560×420, centered) opens **in the foreground** and stays above other windows.
-2. Type `main` → filters to `main-left/main-right/main-top/main-bottom`; arrows move the highlight, clicks also run.
+2. Type `main` (plain typing, **no shift needed** — regression: an early build only accepted input while Shift was held) → filters to `main-left/main-right/main-top/main-bottom`; arrows move the highlight, clicks also run. Backspace edits the query normally.
 3. Press `Enter` → runs selection, palette closes.
 4. `Esc` closes with no action.
 5. While the palette is open, the daemon keeps responding: `mrspace exec "current-desktop"` returns immediately (palette is its own process, IPC unaffected).
 6. Press `Win+Space` again while open → **no second instance**; the open palette is raised instead (single-instance).
+
+## 6b. Flow Launcher plugin (preferred control surface)
+
+Installed at `%APPDATA%\FlowLauncher\Plugins\MrSpace\` (same `mrspace.exe` is copied there).
+
+1. `Flow Settings → Plugin` → reload plugin data (or press the reload button) — `Mr. Space` should show as loaded.
+2. Open Flow, type `ms` → all mrspace actions rendered (Pin Left/Right/Top/Bottom, Maximize, layouts, focus, desktops, palette…).
+3. `ms lay` → filters to `Layout:*` rows; `Enter` on `Layout: 2 columns` applies it via the daemon.
+4. `ms w` → every manageable window listed as five rows each (Left/Right/Top/Bottom Half, Full Work Area); type partial title to filter; `Enter` pins *that exact window* (hwnd is baked into the command).
+5. Without the daemon running, actions no-op silently (plugin prints nothing to stderr unless the request itself is malformed).
 
 ## 7. Toggle-tiling (auto-fit when you want it)
 

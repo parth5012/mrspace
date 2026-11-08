@@ -286,7 +286,6 @@ pub fn show() {
             let root = win.clone();
             let _ = root.update(cx, |s, _window, cx| {
                 let m = &ks.modifiers;
-                let only_shift = m.shift && !m.control && !m.alt && !m.platform;
                 match ks.key.as_str() {
                     "up" => {
                         if s.selected > 0 {
@@ -305,16 +304,26 @@ pub fn show() {
                     "escape" => {
                         cx.quit();
                     }
-                    "backspace" if only_shift => {
+                    "backspace" => {
                         s.query.pop();
                         s.refilter();
                     }
+                    "space" => {
+                        s.query.push(' ');
+                        s.refilter();
+                    }
                     _ => {
-                        if only_shift {
-                            if let Some(ch) = ks.key_char.as_deref().and_then(|c| c.chars().next())
+                        // plain typing: no ctrl/alt/win modifiers. key_char
+                        // already carries the shift-cased character.
+                        let plain = !m.control && !m.alt && !m.platform;
+                        if plain {
+                            if let Some(ch) =
+                                ks.key_char.as_deref().and_then(|c| c.chars().next())
                             {
-                                s.query.push(ch);
-                                s.refilter();
+                                if !ch.is_control() {
+                                    s.query.push(ch);
+                                    s.refilter();
+                                }
                             }
                         }
                     }

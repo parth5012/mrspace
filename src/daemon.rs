@@ -83,12 +83,23 @@ fn handle_client(mut stream: TcpStream) {
 fn dispatch(cmd: &str) -> String {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     if parts.is_empty() { return "ERR empty".into(); }
+    // some commands accept an optional target hwnd (decimal) — e.g.
+    // "pin-left 2090304" pins that specific window instead of the foreground
+    let explicit_hwnd: Option<isize> = parts.get(1).and_then(|p| p.parse::<isize>().ok());
+    let target = |fallback: isize| -> isize {
+        let fg = win32::foreground() as isize;
+        if let Some(h) = explicit_hwnd {
+            if h != 0 && win32::is_manageable(h as _) { h } else { fg }
+        } else {
+            fallback
+        }
+    };
     match parts[0] {
-        "pin-left" => { let h = win32::foreground(); if !h.is_null() { layout::pin_left(h); } "OK".into() }
-        "pin-right" => { let h = win32::foreground(); if !h.is_null() { layout::pin_right(h); } "OK".into() }
-        "pin-top" => { let h = win32::foreground(); if !h.is_null() { layout::pin_top(h); } "OK".into() }
-        "pin-bottom" => { let h = win32::foreground(); if !h.is_null() { layout::pin_bottom(h); } "OK".into() }
-        "maximize" => { let h = win32::foreground(); if !h.is_null() { layout::maximize(h); } "OK".into() }
+        "pin-left" => { let h = target(win32::foreground() as isize); if h != 0 { layout::pin_left(h as _); } "OK".into() }
+        "pin-right" => { let h = target(win32::foreground() as isize); if h != 0 { layout::pin_right(h as _); } "OK".into() }
+        "pin-top" => { let h = target(win32::foreground() as isize); if h != 0 { layout::pin_top(h as _); } "OK".into() }
+        "pin-bottom" => { let h = target(win32::foreground() as isize); if h != 0 { layout::pin_bottom(h as _); } "OK".into() }
+        "maximize" => { let h = target(win32::foreground() as isize); if h != 0 { layout::maximize(h as _); } "OK".into() }
         "fit-all" => { layout::fit_all(); "OK".into() }
         "list-windows" => {
             let mut out = String::new();
@@ -135,9 +146,14 @@ fn dispatch(cmd: &str) -> String {
         "move-prev-desktop" => { crate::desktop::move_to_prev_desktop(); "OK".into() }
         "palette" => { crate::daemon::spawn_palette_process(); "OK".into() }
         "toggle-tiling" => { let on = crate::tiling::toggle(); format!("tiling {}", if on {"ON"} else {"OFF"}) }
-        cmd if cmd.starts_with("layout ") => {
-            let name = cmd.trim_start_matches("layout ").trim();
+        "layout" => {
+            let name = parts.get(1).copied().unwrap_or("");
             if crate::layouts::apply(name) { format!("layout {name} applied") } else { format!("ERR unknown layout: {name}") }
+        }
+        "exec" => {
+            // escape hatch: run the remainder as a direct action
+            execute_action(&parts[1..].join(" "));
+            "OK".into()
         }
         "layout-cycle" => { let n = crate::layouts::cycle(); format!("layout {n}") }
         other => format!("ERR unknown command: {other}"),

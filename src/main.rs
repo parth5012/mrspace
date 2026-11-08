@@ -29,6 +29,9 @@ struct Cli {
 enum Commands {
     /// Run the background daemon (hotkeys + IPC).
     Daemon,
+    /// Flow Launcher plugin bridge (JSON-RPC via argv[1]); not for manual use.
+    #[command(hide = true)]
+    Flow { rpc: String },
     /// Pin the foreground window to the left half.
     PinLeft,
     /// Pin the foreground window to the right half.
@@ -82,6 +85,10 @@ fn main() {
     resize::init();
     tiling::init();
     let cli = Cli::parse();
+    if let Some(Commands::Flow { rpc }) = &cli.cmd {
+        flow_protocol(rpc);
+        return;
+    }
     let c = cfg();
     let p = c.ipc_port;
     match cli.cmd {
@@ -94,6 +101,7 @@ fn main() {
             }
         }
         Some(Commands::Daemon) => daemon::run(c),
+        Some(Commands::Flow { .. }) => unreachable!("handled before config load"),
         Some(Commands::PinLeft) => run_or_direct(p, "pin-left", || { let h = win32::foreground(); if !h.is_null() { layout::pin_left(h); } }),
         Some(Commands::PinRight) => run_or_direct(p, "pin-right", || { let h = win32::foreground(); if !h.is_null() { layout::pin_right(h); } }),
         Some(Commands::PinTop) => run_or_direct(p, "pin-top", || { let h = win32::foreground(); if !h.is_null() { layout::pin_top(h); } }),
@@ -196,4 +204,194 @@ fn parse_guid_cli(s: &str) -> Option<windows_sys::core::GUID> {
     let bytes = e.to_be_bytes();
     for i in 0..6 { g.data4[2+i] = bytes[2+i]; }
     Some(g)
+}
+// ---------------------------------------------------------------------------
+// Flow Launcher plugin protocol ("Language": "executable")
+//
+// Flow runs `mrspace.exe flow <json-rpc-request>`:
+//   query          -> list of results to render (filtered mrspace actions)
+//   ms.exec        -> (our custom action) run the command through the daemon
+// Everything else -> empty result set.
+// Only stdout may carry the JSON response; diagnostics go to stderr.
+// ---------------------------------------------------------------------------
+
+type FlowValue = serde_json::Value;
+
+struct FlowResult {
+    title: String,
+    subtitle: String,
+    score: i32,
+    cmd: Option<String>, // None => informational result
+}
+
+const FLOW_ACTIONS: &[(&str, &str, &str)] = &[
+    // (query title, subtitle, daemon command)
+    ("Pin Left", "Foreground → left half of the work area", "pin-left"),
+    ("Pin Right", "Foreground → right half of the work area", "pin-right"),
+    ("Pin Top", "Foreground → top half of the work area", "pin-top"),
+    ("Pin Bottom", "Foreground → bottom half of the work area", "pin-bottom"),
+    ("Maximize", "Foreground → full work area", "maximize"),
+    ("Fit All (grid)", "Tile all visible windows in an even grid", "fit-all"),
+    ("Layout: grid", "Same as fit-all", "layout grid"),
+    ("Layout: 2 columns", "Two equal columns", "layout columns-2"),
+    ("Layout: 3 columns", "Three equal columns", "layout columns-3"),
+    ("Layout: 2 rows", "Two equal rows", "layout rows-2"),
+    ("Layout: main-left", "Foreground big on the left, others stacked right", "layout main-left"),
+    ("Layout: main-right", "Foreground big on the right, others stacked left", "layout main-right"),
+    ("Layout: main-top", "Foreground big on top, others stacked below", "layout main-top"),
+    ("Layout: main-bottom", "Foreground big at bottom, others stacked above", "layout main-bottom"),
+    ("Toggle Auto-Tiling", "Re-tile automatically when windows open/close", "toggle-tiling"),
+    ("Cycle Layouts", "grid → 2 cols → 3 cols → 2 rows → main-* → focus", "layout-cycle"),
+    ("Focus Left", "Switch focus to the nearest window on the left", "focus-left"),
+    ("Focus Down", "Switch focus to the nearest window below", "focus-down"),
+    ("Focus Up", "Switch focus to the nearest window above", "focus-up"),
+    ("Focus Right", "Switch focus to the nearest window on the right", "focus-right"),
+    ("Next Virtual Desktop", "Switch desktop view (native animation)", "next-desktop"),
+    ("Prev Virtual Desktop", "Switch back one desktop", "prev-desktop"),
+    ("Move Window to Next Desktop", "Foreground → next desktop", "move-next-desktop"),
+    ("Move Window to Prev Desktop", "Foreground → previous desktop", "move-prev-desktop"),
+    ("Resize Mode", "Nudge the foreground window with arrows; Esc exits", "resize-mode"),
+    ("Grow Window", "Resize-mode: grow the edge under the cursor", "grow"),
+    ("Shrink Window", "Resize-mode: shrink the edge under the cursor", "shrink"),
+    ("Open Palette", "The built-in mrspace palette (gpui)", "palette"),
+    ("Settings", "Open the mrspace settings window", "settings"),
+];
+
+fn flow_protocol(rpc: &str) {
+    let req: FlowValue = match serde_json::from_str(rpc) {
+        Ok(v) => v,
+        Err(e) => { eprintln!("bad rpc: {e}"); return; }
+    };
+    let method = req.get("method").and_then(FlowValue::as_str).unwrap_or("");
+    let params = req.get("parameters").and_then(FlowValue::as_array).cloned().unwrap_or_default();
+
+    let results: Vec<serde_json::Value> = match method {
+        "query" => {
+            let q = params.first().and_then(FlowValue::as_str).unwrap_or("");
+            flow_query(q)
+        }
+        "ms.exec" => {
+            let cmd = params
+                .first()
+                .and_then(FlowValue::as_object)
+                .and_then(|o| o.get("command"))
+                .and_then(FlowValue::as_str)
+                .unwrap_or("")
+                .to_string();
+            flow_exec(&cmd);
+            Vec::new()
+        }
+        _ => Vec::new(),
+    };
+    if method.starts_with("ms.") {
+        // custom actions don't return results to render
+        println!("{{}}");
+        return;
+    }
+    println!("{}", serde_json::json!({ "result": results }));
+}
+
+fn flow_ipc(cmd: &str) -> String {
+    let port = crate::config::Config::default().ipc_port;
+    crate::daemon::send_command(port, cmd)
+}
+
+fn flow_exec(cmd: &str) {
+    flow_ipc(cmd);
+}
+
+fn flow_query(q: &str) -> Vec<serde_json::Value> {
+    // per-window mode: `win ...` or `w ...` — list every manageable window,
+    // each carrying its hwnd-already-baked-in layout commands (dispatch
+    // accepts "pin-left <hwnd>" etc.). Otherwise show the flat action list.
+    if let Some(rest) = q.strip_prefix("win").or_else(|| q.strip_prefix("w ")) {
+        let rest = rest.trim();
+        let mut out: Vec<FlowResult> = Vec::new();
+        if let Some(items) = flow_context_windows() {
+            for r in items {
+                if rest.is_empty() || fuzzy_match(&r.title, rest) {
+                    out.push(r);
+                }
+            }
+        }
+        return flow_results(out);
+    }
+
+    let mut out: Vec<FlowResult> = Vec::new();
+    for (title, sub, cmd) in FLOW_ACTIONS.iter().copied() {
+        if q.is_empty() || fuzzy_match(title, q) || fuzzy_match(cmd, q) {
+            out.push(FlowResult {
+                title: title.to_string(),
+                subtitle: sub.to_string(),
+                score: if q.is_empty() { 100 - out.len() as i32 } else { 90 },
+                cmd: Some(cmd.to_string()),
+            });
+        }
+    }
+    // trailing results that query the window list for a specific target
+    out.push(FlowResult {
+        title: "Tile a specific window…".into(),
+        subtitle: "Type `w` (or more) to pick a window, then choose its layout".into(),
+        score: 10,
+        cmd: None,
+    });
+    flow_results(out)
+}
+
+fn flow_results(items: Vec<FlowResult>) -> Vec<serde_json::Value> {
+    items
+        .into_iter()
+        .filter_map(|r| {
+            let cmd = r.cmd?;
+            let action = serde_json::json!({
+                "method": "ms.exec",
+                "parameters": [{ "command": cmd }],
+                "dontHideAfterAction": false
+            });
+            Some(serde_json::json!({
+                "Title": r.title,
+                "SubTitle": r.subtitle,
+                "IcoPath": "Images/icon.png",
+                "Score": r.score,
+                "JsonRPCAction": action,
+            }))
+        })
+        .collect()
+}
+
+/// Enumerate manageable windows and produce per-window layout results with
+/// the hwnd baked into the daemon command ("pin-left <hwnd>", ...).
+/// None => daemon unreachable.
+fn flow_context_windows() -> Option<Vec<FlowResult>> {
+    let listing = flow_ipc("list-windows");
+    let mut out = Vec::new();
+    for line in listing.lines() {
+        let mut it = line.splitn(3, '|');
+        let hwnd = it.next().unwrap_or("0").to_string();
+        let pid = it.next().unwrap_or("?").to_string();
+        let title = it.next().unwrap_or("").to_string();
+        if title.is_empty() || hwnd == "0" {
+            continue;
+        }
+        for (dir, label) in [("pin-left", "Left Half"), ("pin-right", "Right Half"), ("pin-top", "Top Half"), ("pin-bottom", "Bottom Half"), ("maximize", "Full Work Area")] {
+            out.push(FlowResult {
+                title: format!("{} — {}", label, title),
+                subtitle: format!("Pin this specific window (hwnd {hwnd}, pid {pid})"),
+                score: 70,
+                cmd: Some(format!("{dir} {hwnd}")),
+            });
+        }
+    }
+    Some(out)
+}
+
+/// Fuzzy match: case-insensitive substring on the title; whitespace in the
+/// needle is collapsed so multi-word queries behave predictably.
+fn fuzzy_match(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    let h = haystack.to_lowercase();
+    let n: String = needle.split_whitespace().collect::<String>().to_lowercase();
+    h.contains(&n)
 }

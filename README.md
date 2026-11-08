@@ -56,12 +56,23 @@ Tapping Win alone still opens the Start menu, and unmapped Win-combos (Win+D, Wi
 - `src/hotkeys.rs` — global hotkeys via `RegisterHotKey` + message loop.
 - `src/daemon.rs` — background daemon, hotkey thread, TCP IPC server (127.0.0.1:17331).
 - `src/palette.rs` — command palette built with **gpui** (GPU-rendered, separate process).
+- `src/main.rs` — CLI entry + Flow Launcher JSON-RPC bridge (`flow` hidden subcommand).
 - `src/settings.rs` — minimal Win32 settings window.
 - `src/config.rs` — JSON config.
 
 ## Building the palette (gpui)
 
 The gpui Windows build compiles HLSL shaders at build time and needs `fxc.exe` from the Windows 10 SDK. The repo's `.cargo/config.toml` points `GPUI_FXC_PATH` at `D:\WindowsKits\bin\10.0.26100.0\x64\fxc.exe` — adjust if your SDK is elsewhere.
+
+## Flow Launcher plugin
+
+Mr. Space ships as a native Flow Launcher plugin (`flow-plugin/`, installed under `%APPDATA%\FlowLauncher\Plugins\MrSpace\` — action keyword `ms`):
+
+- `ms` alone — every mrspace action (pin halves, maximize, fit-all, layouts, focus, desktops, resize mode, palette, settings)
+- `ms <filter>` — fuzzy filter over actions
+- `ms w <title filter>` — per-window mode: pick a *specific* window and tile it (left/right/top/bottom half, full work area)
+
+Actions run through the daemon's IPC, so the plugin works with the running daemon; the executable-plugin binary talks JSON-RPC on argv[1]/stdout (`mrspace.exe flow <request>`).
 
 ## Agent integration
 

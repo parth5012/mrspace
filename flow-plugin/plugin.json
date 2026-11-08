@@ -1,0 +1,13 @@
+{
+  "$schema": "https://www.flowlauncher.com/schemas/plugin.schema.json",
+  "ID": "69ca628a-9f70-49fb-af5d-a2e99d45ee09",
+  "ActionKeyword": "ms",
+  "Name": "Mr. Space",
+  "Description": "Control the Mr. Space window manager: pin halves, layouts, fit-all, focus, virtual desktops",
+  "Author": "parth5012",
+  "Version": "1.0.0",
+  "Language": "executable",
+  "Website": "https://github.com/parth5012/mrspace",
+  "IcoPath": "Images/icon.png",
+  "ExecuteFileName": "mrspace.exe"
+}
