@@ -20,3 +20,11 @@
 - Also: hotkey edit enlarged, vertical layout compressed to fit the 1080p@150% client, DT_NOPREFIX so "&" renders in button text, try_apply dedupes port reload message.
 - Verified: full-window screenshots at design geometry, Save + Save & Apply smoke tests (config written, daemon reloaded live), single-instance raise via second `exec settings` — one window. Flow plugin exe copy refreshed.
 - Testing discovery logged in TESTING.md 6b (komorebi rule requirement).
+
+## 2026-11-09 — Settings app card-block restyle
+- Status: Done
+- Form restructured into designed card blocks (MrspaceCard window class, own WM_PAINT): rounded elevated surface + outlineVariant border + icon chip (Segoe MDL2 glyph in primaryContainer tile) + semibold title + small helper description — Linear/Raycast/Material "icon tile" card pattern.
+- Cards: Basics (gear), Window titles / Window classes / Process IDs as three separate exclusion cards (distinct glyphs: document / code braces / info), Border overlays (eye), Hotkeys (pencil).
+- Small UI elements: SS_OWNERDRAW pills — top-right "● daemon running/offline" (probes daemon via try_send_command at open) and Hotkeys "{n} bindings" count chip; app title "Mr. Space — Settings" painted in main WM_PAINT; WM_CTLCOLORSTATIC/WM_CTLCOLORBTN split so labels and the native checkbox erase with the card color (LBLCARD_BASE id range).
+- Card data passed via SetPropW/GetPropW (boxed CardData, freed in WM_DESTROY).
+- Verified: build clean, full-window screenshot at design geometry (cards, pills, distinct exclusion glyphs all render), Save + Save & Apply smoke (config written, deduped "daemon reloaded" reply), single-instance raise. Flow plugin exe copy refreshed.

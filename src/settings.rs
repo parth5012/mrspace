@@ -19,21 +19,25 @@ use crate::config::{self, Config, Hotkey};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontW, CreatePen, CreateSolidBrush, DrawTextW, RoundRect, SelectObject, SetBkMode,
-    SetTextColor, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
+    BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DrawTextW, EndPaint,
+    GetTextExtentPoint32W, RoundRect, SelectObject, SetBkMode, SetTextColor, TextOutW, DT_CENTER,
+    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, PAINTSTRUCT,
 };
-use windows_sys::Win32::UI::Controls::{DRAWITEMSTRUCT, ODS_DISABLED, ODS_SELECTED, ODT_BUTTON};
+use windows_sys::Win32::UI::Controls::{
+    DRAWITEMSTRUCT, ODS_DISABLED, ODS_SELECTED, ODT_BUTTON, ODT_STATIC,
+};
 use windows_sys::Win32::UI::HiDpi::{
     GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetDlgCtrlID, GetDlgItem,
-    GetMessageW, GetWindowTextW, IsDialogMessageW, PostQuitMessage, RegisterClassW, SendMessageW,
-    SetForegroundWindow, SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK,
-    CW_USEDEFAULT, ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, MSG, SW_RESTORE, SW_SHOW,
-    WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC,
-    WM_DESTROY, WM_DRAWITEM, WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CHILD, WS_EX_TOOLWINDOW,
-    WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetDlgCtrlID, GetDlgItem,
+    GetMessageW, GetPropW, GetWindowTextW, IsDialogMessageW, PostQuitMessage, RegisterClassW,
+    SendMessageW, SetForegroundWindow, SetPropW, SetWindowTextW, ShowWindow,
+    RemovePropW, TranslateMessage, BM_GETCHECK, BM_SETCHECK, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_AUTOVSCROLL,
+    ES_MULTILINE, MSG, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN,
+    WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DRAWITEM, WM_ERASEBKGND, WM_PAINT,
+    WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CHILD, WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_TABSTOP,
+    WS_VISIBLE,
 };
 
 // constants that live in other feature modules; inlined to keep the feature set small
@@ -42,6 +46,7 @@ const BST_UNCHECKED: isize = 0;
 const BS_PUSHBUTTON: u32 = 0x10;
 const BS_AUTOCHECKBOX: u32 = 0x3;
 const BS_OWNERDRAW: u32 = 0xB;
+const SS_OWNERDRAW: u32 = 13;
 const PS_SOLID: i32 = 0;
 const TRANSPARENT: i32 = 1;
 // COLORREF-style 0x00BBGGRR from (r,g,b)
@@ -51,15 +56,20 @@ const fn c3(r: u32, g: u32, b: u32) -> u32 {
 
 // M3-dark palette
 const CLR_BG: u32 = c3(0x16, 0x14, 0x1C); // surface
-const CLR_FIELD: u32 = c3(0x24, 0x22, 0x2C); // surfaceContainer
+const CLR_CARD: u32 = c3(0x20, 0x1E, 0x28); // surfaceContainerLow (card blocks)
+const CLR_FIELD: u32 = c3(0x28, 0x26, 0x32); // input field inside a card
 const CLR_TEXT: u32 = c3(0xE6, 0xE0, 0xEA); // onSurface
-const CLR_TEXT_DIM: u32 = c3(0xCA, 0xC4, 0xD2); // onSurfaceVariant
+const CLR_TEXT_DIM: u32 = c3(0x9A, 0x93, 0xA6); // onSurfaceVariant (was too light)
 const CLR_PRIMARY: u32 = c3(0xD0, 0xBC, 0xFF); // primary
 const CLR_PRIMARY_DIM: u32 = c3(0xA9, 0x8F, 0xE0);
 const CLR_ON_PRIMARY: u32 = c3(0x2B, 0x1A, 0x4F);
+const CLR_ICON_TILE: u32 = c3(0x4A, 0x44, 0x58); // primaryContainer (icon chip)
 const CLR_OUTLINE: u32 = c3(0x93, 0x8F, 0x99);
+const CLR_CARD_OUT: u32 = c3(0x39, 0x36, 0x44); // outlineVariant — subtle card border
+const CLR_BORDER_ACCENT: u32 = c3(0x7C, 0x4D, 0xFF); // live accent from config.json
 
 const CLASS_NAME: &str = "MrspaceSettings";
+const CARD_CLASS: &str = "MrspaceCard";
 
 // control ids
 const ID_PORT: i32 = 101;
@@ -81,17 +91,125 @@ const ID_OPEN_CONFIG: i32 = 204;
 const ID_STATUS: i32 = 130;
 // section header statics (accent-colored)
 const SEC_BASE: i32 = 301;
+// pills (SS_OWNERDRAW statics)
+const ID_PILL_DAEMON: i32 = 141;
+const ID_PILL_BINDINGS: i32 = 142;
+// labels painted on a card (WM_CTLCOLORSTATIC paints them with card bg)
+const LBLCARD_BASE: i32 = 500;
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Card blocks — designed panels behind each settings section (Linear/M3 style:
+// icon chip, section title, one-line helper description, rounded elevation).
+// ---------------------------------------------------------------------------
+struct CardData {
+    glyph: [u16; 2], // MDL2 char + NUL
+    title: String,
+    desc: String,
+}
+
+unsafe fn card(parent: HWND, x: i32, y: i32, w: i32, h: i32, glyph: char, title: &str, desc: &str) {
+    let g = wide(&glyph.to_string());
+    let data = Box::new(CardData {
+        glyph: [g[0], 0],
+        title: title.into(),
+        desc: desc.into(),
+    });
+    let cls = wide(CARD_CLASS);
+    let h2 = CreateWindowExW(
+        0,
+        cls.as_ptr(),
+        std::ptr::null(),
+        WS_CHILD | WS_VISIBLE,
+        s(x),
+        s(y),
+        s(w),
+        s(h),
+        parent,
+        0 as _,
+        0 as _,
+        std::ptr::null(),
+    );
+    SetPropW(h2, wide("mrspace-card").as_ptr(), Box::into_raw(data) as *mut _);
+}
+
+unsafe extern "system" fn card_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if msg == WM_DESTROY {
+        let p = GetPropW(hwnd, wide("mrspace-card").as_ptr());
+        if !p.is_null() {
+            RemovePropW(hwnd, wide("mrspace-card").as_ptr());
+            drop(Box::from_raw(p as *mut CardData));
+        }
+        return 0;
+    }
+    if msg == WM_PAINT {
+        let p = GetPropW(hwnd, wide("mrspace-card").as_ptr());
+        let mut ps: PAINTSTRUCT = std::mem::zeroed();
+        let hdc = BeginPaint(hwnd, &mut ps);
+        if let Some(t) = THEME.get() {
+            let mut rc2 = std::mem::zeroed();
+            windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rc2);
+            let w = rc2.right;
+            let h = rc2.bottom;
+
+            // body: rounded elevated surface
+            let brush = CreateSolidBrush(CLR_CARD);
+            let pen = CreatePen(PS_SOLID, 1, CLR_CARD_OUT);
+            let ob = SelectObject(hdc, brush as *mut _);
+            let op = SelectObject(hdc, pen as *mut _);
+            RoundRect(hdc, 0, 0, w, h, s(24), s(24));
+            SelectObject(hdc, ob);
+            SelectObject(hdc, op);
+            windows_sys::Win32::Graphics::Gdi::DeleteObject(brush as *mut _);
+            windows_sys::Win32::Graphics::Gdi::DeleteObject(pen as *mut _);
+
+            if !p.is_null() {
+                let d = &*(p as *const CardData);
+                // icon chip: primary-container rounded square with the glyph
+                let tile = s(30);
+                let ib = CreateSolidBrush(CLR_ICON_TILE);
+                let ip = CreatePen(PS_SOLID, 1, CLR_ICON_TILE);
+                let ob = SelectObject(hdc, ib as *mut _);
+                let op = SelectObject(hdc, ip as *mut _);
+                RoundRect(hdc, s(14), s(12), s(14) + tile, s(12) + tile, s(18), s(18));
+                SelectObject(hdc, ob);
+                SelectObject(hdc, op);
+                windows_sys::Win32::Graphics::Gdi::DeleteObject(ib as *mut _);
+                windows_sys::Win32::Graphics::Gdi::DeleteObject(ip as *mut _);
+                SetBkMode(hdc, TRANSPARENT);
+                SetTextColor(hdc, CLR_PRIMARY);
+                SelectObject(hdc, t.iconf as *mut _);
+                TextOutW(hdc, s(14) + tile / 2 - s(7), s(12) + tile / 2 - s(8), d.glyph.as_ptr(), 1);
+                // title + helper description
+                SetTextColor(hdc, CLR_TEXT);
+                SelectObject(hdc, t.hfont as *mut _);
+                let title: Vec<u16> = d.title.encode_utf16().collect();
+                TextOutW(hdc, s(54), s(14), title.as_ptr(), title.len() as i32);
+                SetTextColor(hdc, CLR_TEXT_DIM);
+                SelectObject(hdc, t.smallf as *mut _);
+                let desc: Vec<u16> = d.desc.encode_utf16().collect();
+                TextOutW(hdc, s(54), s(36), desc.as_ptr(), desc.len() as i32);
+            }
+        }
+        EndPaint(hwnd, &mut ps);
+        return 0;
+    }
+    DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
 /// Theme handles (brushes + fonts), created once before children exist.
 struct Theme {
     font: isize,     // body font
     hfont: isize,    // header font (semibold)
+    smallf: isize,   // small helper/font
+    titlef: isize,   // app title
+    iconf: isize,    // Segoe MDL2 Assets glyph font
     win_bg: isize,   // brush
     field_bg: isize, // brush
+    card_bg: isize,  // brush
 }
 static THEME: std::sync::OnceLock<Theme> = std::sync::OnceLock::new();
 static MAIN_HWND: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
@@ -104,17 +222,32 @@ fn s(v: i32) -> i32 {
 }
 
 unsafe fn make_theme() -> Theme {
+    let fam = wide("Segoe UI");
+    let mdl = wide("Segoe MDL2 Assets");
     let font = CreateFontW(
-        s(18), 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0x22, wide("Segoe UI").as_ptr(),
+        s(18), 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0x22, fam.as_ptr(),
     ) as isize;
     let hfont = CreateFontW(
-        s(20), 0, 0, 0, 600, 0, 0, 0, 0, 0, 0, 0, 0x22, wide("Segoe UI").as_ptr(),
+        s(20), 0, 0, 0, 600, 0, 0, 0, 0, 0, 0, 0, 0x22, fam.as_ptr(),
+    ) as isize;
+    let smallf = CreateFontW(
+        s(14), 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0x22, fam.as_ptr(),
+    ) as isize;
+    let titlef = CreateFontW(
+        s(26), 0, 0, 0, 700, 0, 0, 0, 0, 0, 0, 0, 0x22, fam.as_ptr(),
+    ) as isize;
+    let iconf = CreateFontW(
+        s(15), 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0x22, mdl.as_ptr(),
     ) as isize;
     Theme {
         font,
         hfont,
+        smallf,
+        titlef,
+        iconf,
         win_bg: CreateSolidBrush(CLR_BG) as isize,
         field_bg: CreateSolidBrush(CLR_FIELD) as isize,
+        card_bg: CreateSolidBrush(CLR_CARD) as isize,
     }
 }
 
@@ -132,6 +265,14 @@ pub fn show() {
         wc.lpszClassName = class_name.as_ptr();
         wc.hbrBackground = theme.win_bg as _; // M3 surface fills the window
         RegisterClassW(&wc);
+
+        // decorative card blocks that hold each section's controls
+        let card_name = wide(CARD_CLASS);
+        let mut cc: WNDCLASSW = std::mem::zeroed();
+        cc.lpfnWndProc = Some(card_proc);
+        cc.lpszClassName = card_name.as_ptr();
+        cc.hbrBackground = theme.card_bg as _;
+        RegisterClassW(&cc);
 
         let _ = THEME.set(theme);
 
@@ -262,27 +403,41 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             0
         }
         WM_DRAWITEM => {
-            draw_button(lparam as *const DRAWITEMSTRUCT);
+            let d = lparam as *const DRAWITEMSTRUCT;
+            if (*d).CtlType as u32 == ODT_STATIC {
+                draw_pill(d);
+            } else {
+                draw_button(d);
+            }
             1
         }
         // system asks which brush to paint behind our children
-        WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
+        WM_CTLCOLOREDIT => {
             let t = THEME.get().unwrap();
             SetBkMode(wparam as *mut _, TRANSPARENT);
             SetTextColor(wparam as *mut _, CLR_TEXT);
             t.field_bg as LRESULT
         }
+        WM_CTLCOLORBTN => {
+            // only the native checkboxes; draw them on the card surface
+            let t = THEME.get().unwrap();
+            SetBkMode(wparam as *mut _, TRANSPARENT);
+            SetTextColor(wparam as *mut _, CLR_TEXT);
+            t.card_bg as LRESULT
+        }
         WM_CTLCOLORSTATIC => {
             let t = THEME.get().unwrap();
             let id = GetDlgCtrlID(lparam as HWND);
             SetBkMode(wparam as *mut _, TRANSPARENT);
-            let color = if (SEC_BASE..SEC_BASE + 16).contains(&id) {
-                CLR_PRIMARY // section headers
+            let (color, brush) = if (SEC_BASE..SEC_BASE + 16).contains(&id) {
+                (CLR_PRIMARY, t.win_bg) // accent section headers on the canvas
+            } else if (LBLCARD_BASE..LBLCARD_BASE + 64).contains(&id) {
+                (CLR_PRIMARY_DIM, t.card_bg) // field labels inside cards
             } else {
-                CLR_TEXT_DIM
+                (CLR_TEXT_DIM, t.win_bg)
             };
             SetTextColor(wparam as *mut _, color);
-            t.win_bg as LRESULT
+            brush as LRESULT
         }
         WM_COMMAND => {
             let id = (wparam & 0xffff) as i32;
@@ -328,6 +483,58 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             0
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+/// Pill chips (SS_OWNERDRAW statics): rounded chip with optional status dot —
+/// used for "daemon running/offline" and "{n} bindings".
+unsafe fn draw_pill(d: *const DRAWITEMSTRUCT) {
+    if (*d).CtlType as u32 != ODT_STATIC {
+        return;
+    }
+    let hdc = (*d).hDC;
+    let rc = (*d).rcItem;
+    let w = rc.right - rc.left;
+    let h = rc.bottom - rc.top;
+    let id = (*d).CtlID as i32;
+
+    let brush = CreateSolidBrush(CLR_CARD);
+    let pen = CreatePen(PS_SOLID, 1, CLR_CARD_OUT);
+    let ob = SelectObject(hdc, brush as *mut _);
+    let op = SelectObject(hdc, pen as *mut _);
+    RoundRect(hdc, 0, 0, w, h, s(16), s(16));
+    SelectObject(hdc, ob);
+    SelectObject(hdc, op);
+    windows_sys::Win32::Graphics::Gdi::DeleteObject(brush as *mut _);
+    windows_sys::Win32::Graphics::Gdi::DeleteObject(pen as *mut _);
+
+    if let Some(t) = THEME.get() {
+        SetBkMode(hdc, TRANSPARENT);
+        SelectObject(hdc, t.smallf as *mut _);
+        let text = get_text_by_hwnd((*d).hwndItem);
+        let chars: Vec<u16> = text.encode_utf16().collect();
+        let dot = text.starts_with('●');
+        let (dx, body) = if dot {
+            (s(12), text.chars().skip(1).collect::<String>()) // skip the dot char, drawn colored
+        } else {
+            (0, text.clone())
+        };
+        let mut sz = windows_sys::Win32::Foundation::SIZE { cx: 0, cy: 0 };
+        let b2: Vec<u16> = body.trim_start().encode_utf16().collect();
+        GetTextExtentPoint32W(hdc, b2.as_ptr(), b2.len() as i32, &mut sz);
+        let mut tx = (w - sz.cx) / 2;
+        if dot {
+            tx += s(8);
+        }
+        if tx < s(10) + dx {
+            tx = s(10) + dx;
+        }
+        if dot {
+            SetTextColor(hdc, if id == ID_PILL_DAEMON { CLR_PRIMARY } else { CLR_PRIMARY_DIM });
+            TextOutW(hdc, tx - s(9), (h - s(18)) / 2, chars.as_ptr(), 1);
+        }
+        SetTextColor(hdc, if id == ID_PILL_DAEMON { CLR_TEXT_DIM } else { CLR_PRIMARY_DIM });
+        TextOutW(hdc, tx, (h - s(18)) / 2, b2.as_ptr(), b2.len() as i32);
     }
 }
 
@@ -412,51 +619,64 @@ const TXTBTN: u32 = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW;
 
 #[allow(non_snake_case)]
 unsafe fn build_form(parent: HWND) {
-    // ---- Behavior -----------------------------------------------------------
-    child(parent, "STATIC", "Behavior", 20, 16, 160, 22, LBL, SEC_BASE + 0, true);
-    child(parent, "STATIC", "IPC port", 20, 46, 70, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 20, 64, 100, 26, E, ID_PORT, false);
-    child(parent, "STATIC", "Resize step", 150, 46, 90, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 150, 64, 100, 26, E, ID_STEP, false);
-    child(parent, "STATIC", "Resize timeout", 280, 46, 120, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 280, 64, 100, 26, E, ID_TIMEOUT, false);
-    child(parent, "STATIC", "Tiling interval", 410, 46, 120, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 410, 64, 100, 26, E, ID_TILING_INTERVAL, false);
-    child(parent, "STATIC", "ms — daemon port / moves per tick / resize-mode timeout / auto-tile check", 540, 64, 160, 58, PLAIN, 0, false);
+    let cfg = config::load();
 
-    // ---- Exclusions ----------------------------------------------------------
-    child(parent, "STATIC", "Never manage — one entry per line", 20, 108, 420, 22, LBL, SEC_BASE + 1, true);
-    child(parent, "STATIC", "Titles", 20, 136, 200, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 20, 154, 216, 116, ML, ID_EX_TITLES, false);
-    child(parent, "STATIC", "Classes", 252, 136, 200, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 252, 154, 216, 116, ML, ID_EX_CLASSES, false);
-    child(parent, "STATIC", "Process ids", 484, 136, 100, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 484, 154, 190, 116, ML, ID_EX_PIDS, false);
+    // ---- header (painted in WM_PAINT) + daemon status pill --------------------
+    let daemon_up = crate::daemon::try_send_command(cfg.ipc_port, "current-desktop")
+        .map(|r| !r.contains("ERR"))
+        .unwrap_or(false);
+    child(
+        parent, "STATIC", "",
+        520, 14, 168, 30,
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, ID_PILL_DAEMON, false,
+    );
+    set_text(parent, ID_PILL_DAEMON, &format!("●{}", if daemon_up { " daemon running" } else { " daemon offline" }));
 
-    // ---- Borders ---------------------------------------------------------------
-    child(parent, "STATIC", "Border overlays", 20, 288, 180, 22, LBL, SEC_BASE + 2, true);
-    child(parent, "BUTTON", "Enable", 20, 318, 78, 26, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, ID_BORDERS_ENABLE, false);
-    child(parent, "STATIC", "Thickness", 116, 322, 70, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 190, 318, 50, 26, E, ID_BORDERS_THICKNESS, false);
-    child(parent, "STATIC", "Accent (RRGGBB)", 260, 322, 120, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 384, 318, 90, 26, E, ID_BORDERS_ACCENT, false);
-    child(parent, "STATIC", "Muted (RRGGBB)", 494, 322, 110, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 608, 318, 66, 26, E, ID_BORDERS_MUTED, false);
+    // ---- Basics — port / steps / timeouts (card) ------------------------------
+    card(parent, 20, 58, 660, 96, '\u{E713}', "Basics", "IPC port · resize step · resize timeout · tiling interval (ms)");
+    child(parent, "STATIC", "IPC port", 34, 106, 70, 16, LBL, LBLCARD_BASE + 0, false);
+    child(parent, "EDIT", "", 34, 124, 96, 26, E, ID_PORT, false);
+    child(parent, "STATIC", "Resize step", 146, 106, 90, 16, LBL, LBLCARD_BASE + 1, false);
+    child(parent, "EDIT", "", 146, 124, 96, 26, E, ID_STEP, false);
+    child(parent, "STATIC", "Resize timeout", 258, 106, 120, 16, LBL, LBLCARD_BASE + 2, false);
+    child(parent, "EDIT", "", 258, 124, 96, 26, E, ID_TIMEOUT, false);
+    child(parent, "STATIC", "Tiling interval", 370, 106, 120, 16, LBL, LBLCARD_BASE + 3, false);
+    child(parent, "EDIT", "", 370, 124, 96, 26, E, ID_TILING_INTERVAL, false);
 
-    // ---- Hotkeys -----------------------------------------------------------------
-    child(parent, "STATIC", "Hotkeys", 20, 364, 120, 22, LBL, SEC_BASE + 3, true);
-    child(parent, "STATIC", "one per line:  name|modifiers|vk|action   (vk hex like 0x25; modifiers decimal: 1=alt 2=ctrl 4=shift 8=win)", 20, 392, 660, 16, PLAIN, 0, false);
-    child(parent, "EDIT", "", 20, 414, 654, 230, ML, ID_HOTKEYS, false);
+    // ---- Exclusions — three dedicated cards ------------------------------------
+    card(parent, 20, 170, 212, 150, '\u{E8A5}', "Window titles", "exclude by title substring");
+    child(parent, "EDIT", "", 32, 222, 188, 84, ML, ID_EX_TITLES, false);
+    card(parent, 244, 170, 212, 150, '\u{E943}', "Window classes", "exclude by Win32 class");
+    child(parent, "EDIT", "", 256, 222, 188, 84, ML, ID_EX_CLASSES, false);
+    card(parent, 468, 170, 212, 150, '\u{E946}', "Process IDs", "exclude by image pid");
+    child(parent, "EDIT", "", 480, 222, 188, 84, ML, ID_EX_PIDS, false);
+
+    // ---- Border overlays (card) ------------------------------------------------
+    card(parent, 20, 336, 660, 84, '\u{E7B3}', "Border overlays", "ring drawn around managed windows");
+    child(parent, "BUTTON", "Enable", 32, 386, 74, 24, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, ID_BORDERS_ENABLE, false);
+    child(parent, "STATIC", "Thickness", 122, 390, 70, 16, LBL, LBLCARD_BASE + 4, false);
+    child(parent, "EDIT", "", 204, 386, 46, 24, E, ID_BORDERS_THICKNESS, false);
+    child(parent, "STATIC", "Accent", 268, 390, 48, 16, LBL, LBLCARD_BASE + 5, false);
+    child(parent, "EDIT", "", 322, 386, 76, 24, E, ID_BORDERS_ACCENT, false);
+    child(parent, "STATIC", "Muted", 416, 390, 48, 16, LBL, LBLCARD_BASE + 6, false);
+    child(parent, "EDIT", "", 470, 386, 76, 24, E, ID_BORDERS_MUTED, false);
+
+    // ---- Hotkeys (card + bindings pill) ----------------------------------------
+    card(parent, 20, 436, 660, 232, '\u{E70F}', "Hotkeys", "one per line ·  name | modifiers | vk | action");
+    child(
+        parent, "STATIC", "",
+        560, 446, 110, 26,
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, ID_PILL_BINDINGS, false,
+    );
+    set_text(parent, ID_PILL_BINDINGS, &format!("{} bindings", cfg.hotkeys.len()));
+    child(parent, "EDIT", "", 32, 494, 636, 158, ML, ID_HOTKEYS, false);
 
     // ---- bottom bar -----------------------------------------------------------
-    child(parent, "BUTTON", "", 20, 660, 130, 32, BTN, ID_SAVE_APPLY, false);
-    child(parent, "BUTTON", "Save", 162, 660, 90, 32, BTN, ID_SAVE, false);
-    child(parent, "BUTTON", "Cancel", 264, 660, 90, 32, BTN, ID_CANCEL, false);
-    child(parent, "STATIC", "", 372, 660, 200, 32, PLAIN, ID_STATUS, false); // Save&Apply feedback lives right of the buttons
-    child(parent, "BUTTON", "Open Config", 584, 660, 90, 32, BTN, ID_OPEN_CONFIG, false);
-
-    // ---- fill from the real config ------------------------------------------
-    let cfg = config::load();
+    child(parent, "BUTTON", "", 20, 678, 128, 30, BTN, ID_SAVE_APPLY, false);
+    child(parent, "BUTTON", "Save", 156, 678, 84, 30, BTN, ID_SAVE, false);
+    child(parent, "BUTTON", "Cancel", 248, 678, 84, 30, BTN, ID_CANCEL, false);
+    child(parent, "STATIC", "", 344, 678, 220, 30, PLAIN, ID_STATUS, false); // feedback sits right of the buttons
+    child(parent, "BUTTON", "Open Config", 578, 678, 102, 30, BTN, ID_OPEN_CONFIG, false);
     set_text(parent, ID_PORT, &cfg.ipc_port.to_string());
     set_text(parent, ID_STEP, &cfg.resize_step.to_string());
     set_text(parent, ID_TIMEOUT, &cfg.resize_timeout_ms.to_string());
