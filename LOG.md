@@ -45,3 +45,11 @@
 - Renamed "Window classes" card title → "Classes" (header collided with the ＋/✕ buttons at 212 logical px card width).
 - Known nits (accepted): system-white listbox scrollbar; only ~4 rows visible before scrolling (by design, rows scroll).
 - Verified: build clean, full-window screenshot (rows render separated with chips/keycaps/actions), LB_GETITEMHEIGHT probe (30/30/30/36 physical = correct), Save smoke → config.txt byte-identical, Flow plugin exe copy refreshed, daemon restarted.
+
+## 2026-11-09 — Settings polish round 2 (dark controls, hints, swatches)
+- Status: Done
+- Dark-mode common controls: SetWindowTheme(h, "DarkMode_Explorer") on all four listboxes (dark scrollbar) and the Enable checkbox (dark glyph).
+- Empty-state hints in the three exclusion lists ("nothing yet — ＋ adds a …"), SS_CENTER statics layered on top of each list, toggled from sync_hidden/update_hints by row count; CTLCOLORSTATIC renders them CLR_TEXT_DIM on card bg.
+- Live color swatches: 12×20 rounded owner-draw statics next to the Accent/Muted fields, parse_color("#RRGGBB"→COLORREF 0x00BBGGRR), invalidated on EN_CHANGE — typing a hex updates the preview instantly.
+- Bugs fixed this round: swatch statics were created without WS_VISIBLE (invisible), swatch DC origin is the static's client (draw 0,0..w,h like pills), and initial parse interpreted RRGGBB as COLORREF directly → BGR-swapped salmon; now explicit per-channel parse.
+- Verified: build clean, full screenshot (dark scrollbar+checkbox, hints show in empty lists, swatches correct purple/gray), Save smoke → config identical, Flow plugin exe refreshed.

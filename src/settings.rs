@@ -24,14 +24,14 @@ use windows_sys::Win32::Graphics::Gdi::{
     DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, PAINTSTRUCT,
 };
 use windows_sys::Win32::UI::Controls::{
-    DRAWITEMSTRUCT, ODS_DISABLED, ODS_SELECTED, ODT_BUTTON, ODT_LISTBOX, ODT_STATIC,
+    DRAWITEMSTRUCT, ODS_DISABLED, ODS_SELECTED, ODT_BUTTON, ODT_LISTBOX, ODT_STATIC, SetWindowTheme,
 };
 use windows_sys::Win32::UI::HiDpi::{
     GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetDlgCtrlID, GetDlgItem,
-    GetMessageW, GetPropW, GetWindowTextW, IsDialogMessageW, MoveWindow,
+    GetMessageW, GetParent, GetPropW, GetWindowTextW, IsDialogMessageW, MoveWindow,
     PostQuitMessage, RegisterClassW, RemovePropW, SendMessageW, SetForegroundWindow, SetPropW,
     SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, CW_USEDEFAULT,
     ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, MSG, SW_HIDE, SW_RESTORE, SW_SHOW, WM_CLOSE,
@@ -90,6 +90,12 @@ const ID_DEL: i32 = 185;
 // shared in-place overlay edit for a single list row
 const ID_OVERLAY: i32 = 190;
 const ID_LAST_ROWBTN: i32 = ID_DEL + 3;
+// live color swatches on the borders card
+const ID_SWATCH_ACCENT: i32 = 151;
+const ID_SWATCH_MUTED: i32 = 152;
+// empty-state hint statics for the exclusion lists
+const ID_HINTS: i32 = 165; // ..ID_HINTS..167
+const SS_CENTER: u32 = 0x0001;
 const ID_BORDERS_ENABLE: i32 = 114;
 const ID_BORDERS_THICKNESS: i32 = 115;
 const ID_BORDERS_ACCENT: i32 = 116;
@@ -471,7 +477,11 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
         }
         WM_DRAWITEM => {
             let d = lparam as *const DRAWITEMSTRUCT;
-            if (*d).CtlType as u32 == ODT_STATIC {
+            if (*d).CtlID as i32 == ID_SWATCH_ACCENT {
+                draw_color_swatch(d, ID_BORDERS_ACCENT);
+            } else if (*d).CtlID as i32 == ID_SWATCH_MUTED {
+                draw_color_swatch(d, ID_BORDERS_MUTED);
+            } else if (*d).CtlType as u32 == ODT_STATIC {
                 draw_pill(d);
             } else if (*d).CtlType as u32 == ODT_LISTBOX {
                 let narrow = (*d).CtlID as i32 != ID_LB_HOTKEYS;
@@ -510,6 +520,8 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 (CLR_PRIMARY, t.win_bg) // accent section headers on the canvas
             } else if (LBLCARD_BASE..LBLCARD_BASE + 64).contains(&id) {
                 (CLR_PRIMARY_DIM, t.card_bg) // field labels inside cards
+            } else if (ID_HINTS..ID_HINTS + 4).contains(&id) {
+                (CLR_TEXT_DIM, t.card_bg) // empty-state hints inside lists
             } else {
                 (CLR_TEXT_DIM, t.win_bg)
             };
@@ -585,6 +597,19 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                             SendMessageW(h, LB_SETCURSEL, sel.max(0) as usize, 0);
                             sync_hidden(hwnd, lbid);
                         }
+                    }
+                    0
+                }
+                ID_BORDERS_ACCENT | ID_BORDERS_MUTED => {
+                    // live color preview: repaint the swatch on any text change
+                    let ntf = ((wparam >> 16) & 0xffff) as i32;
+                    if ntf == 0x0300 /* EN_CHANGE */ {
+                        let sw = if id == ID_BORDERS_ACCENT {
+                            ID_SWATCH_ACCENT
+                        } else {
+                            ID_SWATCH_MUTED
+                        };
+                        windows_sys::Win32::Graphics::Gdi::InvalidateRect(GetDlgItem(hwnd, sw), std::ptr::null(), 1);
                     }
                     0
                 }
@@ -879,6 +904,37 @@ unsafe fn draw_list_row(d: *const DRAWITEMSTRUCT, narrow: bool) {
     }
 }
 
+/** parse "#RRGGBB" / "RRGGBB" → COLORREF (0x00BBGGRR), None on garbage */
+fn parse_color(s: &str) -> Option<u32> {
+    let t = s.trim().trim_start_matches('#');
+    if t.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&t[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&t[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&t[4..6], 16).ok()?;
+    Some(r as u32 | (g as u32) << 8 | (b as u32) << 16)
+}
+
+/// live color preview next to the accent/muted fields (12×20 rounded pill)
+unsafe fn draw_color_swatch(d: *const DRAWITEMSTRUCT, edit_id: i32) {
+    let hdc = (*d).hDC;
+    let rc = (*d).rcItem;
+    let txt = get_text_by_hwnd(GetDlgItem(GetParent((*d).hwndItem), edit_id));
+    let color = parse_color(&txt).unwrap_or(CLR_PRIMARY);
+    let w = rc.right - rc.left;
+    let h = rc.bottom - rc.top;
+    let b = CreateSolidBrush(color);
+    let p = CreatePen(PS_SOLID, 1, CLR_CARD_OUT);
+    let ob = SelectObject(hdc, b as *mut _);
+    let op = SelectObject(hdc, p as *mut _);
+    RoundRect(hdc, 0, 0, w + 2, h + 2, s(6), s(6));
+    SelectObject(hdc, ob);
+    SelectObject(hdc, op);
+    windows_sys::Win32::Graphics::Gdi::DeleteObject(b as *mut _);
+    windows_sys::Win32::Graphics::Gdi::DeleteObject(p as *mut _);
+}
+
 /// Command order to keep hidden edits in sync with what the lists show.
 unsafe fn sync_hidden(parent: HWND, lbid: i32) {
     let h = GetDlgItem(parent, lbid);
@@ -980,6 +1036,7 @@ unsafe fn overlay_commit(parent: HWND) {
         }
     }
     sync_hidden(parent, lbid);
+    update_hints(parent);
 }
 
 /// M3-style rounded buttons drawn by hand: primary = filled lavender for/// "Save & Apply", others = outlined tonal buttons.
@@ -1063,7 +1120,23 @@ const TXTBTN: u32 = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW;
 /// owner-draw listbox with a fixed designed row height (px, logical)
 unsafe fn listbox(parent: HWND, x: i32, y: i32, w: i32, h: i32, id: i32, rowh: i32) {
     child(parent, "LISTBOX", "", x, y, w, h, LBX, id, false);
-    SendMessageW(GetDlgItem(parent, id), LB_SETITEMHEIGHT, 0, s(rowh) as LPARAM);
+    let h2 = GetDlgItem(parent, id);
+    SendMessageW(h2, LB_SETITEMHEIGHT, 0, s(rowh) as LPARAM);
+    // dark-mode common-controls theme → dark scrollbar (Win10 1809+)
+    let dm = wide("DarkMode_Explorer");
+    SetWindowTheme(h2, dm.as_ptr(), std::ptr::null());
+}
+
+/// toggle the empty-state hints to match each exclusion list's row count
+unsafe fn update_hints(parent: HWND) {
+    for (lb, hint) in [
+        (ID_LB_TITLES, ID_HINTS),
+        (ID_LB_CLASSES, ID_HINTS + 1),
+        (ID_LB_PIDS, ID_HINTS + 2),
+    ] {
+        let n = SendMessageW(GetDlgItem(parent, lb), LB_GETCOUNT, 0, 0);
+        ShowWindow(GetDlgItem(parent, hint), if n == 0 { SW_SHOW } else { SW_HIDE });
+    }
 }
 
 /// tiny ＋/✕ owner-draw glyph button on a card header
@@ -1101,28 +1174,47 @@ unsafe fn build_form(parent: HWND) {
     card(parent, 20, 188, 212, 150, '\u{E8A5}', "Window titles", "exclude by title substring");
     child(parent, "EDIT", "", 32, 240, 188, 84, MLH, ID_EX_TITLES, false);
     listbox(parent, 32, 240, 188, 84, ID_LB_TITLES, 20);
+    child(
+        parent, "STATIC", "nothing yet — ＋ adds a row", 38, 272, 176, 16,
+        WS_CHILD | SS_CENTER, ID_HINTS, false,
+    );
     mini(parent, 232 - 52, 200, 22, 20, "＋", ID_ADD); // ＋ / ✕ in the card header
     mini(parent, 232 - 26, 200, 22, 20, "✕", ID_DEL);
     card(parent, 244, 188, 212, 150, '\u{E943}', "Classes", "exclude by Win32 class");
     child(parent, "EDIT", "", 256, 240, 188, 84, MLH, ID_EX_CLASSES, false);
     listbox(parent, 256, 240, 188, 84, ID_LB_CLASSES, 20);
+    child(
+        parent, "STATIC", "nothing yet — ＋ adds a row", 262, 272, 176, 16,
+        WS_CHILD | SS_CENTER, ID_HINTS + 1, false,
+    );
     mini(parent, 456 - 52, 200, 22, 20, "＋", ID_ADD + 1);
     mini(parent, 456 - 26, 200, 22, 20, "✕", ID_DEL + 1);
     card(parent, 468, 188, 212, 150, '\u{E946}', "Process IDs", "exclude by image pid");
     child(parent, "EDIT", "", 480, 240, 188, 84, MLH, ID_EX_PIDS, false);
     listbox(parent, 480, 240, 188, 84, ID_LB_PIDS, 20);
+    child(
+        parent, "STATIC", "nothing yet — ＋ adds a pid", 486, 272, 176, 16,
+        WS_CHILD | SS_CENTER, ID_HINTS + 2, false,
+    );
     mini(parent, 680 - 52, 200, 22, 20, "＋", ID_ADD + 2);
     mini(parent, 680 - 26, 200, 22, 20, "✕", ID_DEL + 2);
 
     // ---- Border overlays (card) ------------------------------------------------
     card(parent, 20, 354, 660, 84, '\u{E7B3}', "Border overlays", "ring drawn around managed windows");
     child(parent, "BUTTON", "Enable", 32, 404, 74, 24, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, ID_BORDERS_ENABLE, false);
+    {
+        // dark-mode common-controls theme → dark checkbox glyph
+        let dm = wide("DarkMode_Explorer");
+        SetWindowTheme(GetDlgItem(parent, ID_BORDERS_ENABLE), dm.as_ptr(), std::ptr::null());
+    }
     child(parent, "STATIC", "Thickness", 122, 408, 70, 16, LBL, LBLCARD_BASE + 4, false);
     child(parent, "EDIT", "", 204, 404, 46, 24, E, ID_BORDERS_THICKNESS, false);
     child(parent, "STATIC", "Accent", 268, 408, 48, 16, LBL, LBLCARD_BASE + 5, false);
     child(parent, "EDIT", "", 322, 404, 76, 24, E, ID_BORDERS_ACCENT, false);
-    child(parent, "STATIC", "Muted", 416, 408, 48, 16, LBL, LBLCARD_BASE + 6, false);
-    child(parent, "EDIT", "", 470, 404, 76, 24, E, ID_BORDERS_MUTED, false);
+    child(parent, "STATIC", "", 404, 406, 12, 20, WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, ID_SWATCH_ACCENT, false);
+    child(parent, "STATIC", "Muted", 430, 408, 48, 16, LBL, LBLCARD_BASE + 6, false);
+    child(parent, "EDIT", "", 484, 404, 76, 24, E, ID_BORDERS_MUTED, false);
+    child(parent, "STATIC", "", 566, 406, 12, 20, WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, ID_SWATCH_MUTED, false);
 
     // ---- Hotkeys (card + bindings pill) ----------------------------------------
     card_w(parent, 20, 454, 660, 206, '\u{E70F}', "Hotkeys", "one per line ·  name | modifiers | vk | action");
@@ -1172,6 +1264,7 @@ unsafe fn build_form(parent: HWND) {
     seed(ID_EX_CLASSES, ID_LB_CLASSES);
     seed(ID_EX_PIDS, ID_LB_PIDS);
     seed(ID_HOTKEYS, ID_LB_HOTKEYS);
+    update_hints(parent);
 }
 
 unsafe fn set_text(parent: HWND, id: i32, txt: &str) {
