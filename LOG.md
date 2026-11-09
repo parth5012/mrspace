@@ -34,3 +34,14 @@
 - Research route: builtin websearch 402; no Tavily/Firecrawl MCP configured; desktop browser disconnected — used DuckDuckGo html endpoint + webfetch/curl + Muzli embeds + Pinterest pin CDN to pull real reference screenshots (Untitled UI settings page; Muzli dark gallery).
 - Applied: in-content page header "Settings" + muted helper line (WM_PAINT), quiet "…" affordance on every card, Untitled-UI hairline separator under the Hotkeys card header (Basics/Borders too tight for it — skipped deliberately), cards shifted +18px for the header, hotkeys edit re-gapped.
 - Verified: build clean, full screenshot (header, dots, separator render correctly, no clipping), Save smoke OK, Flow plugin exe copy refreshed.
+
+## 2026-11-09 — Settings designed list rows (inside-block content)
+- Status: Done
+- Replaced the raw multiline `pin-left|3|0x25|pin-left` edits with designed owner-draw rows: hotkey rows = name + modifier chips (Win/Alt/Ctrl/Shift, field-tinted rounded chips) + keycap box with vk glyph (←↑↓ arrows, F-keys, else raw hex) + right-aligned dim "→ action"; exclusion rows = clean plain text on the card surface; selection = primaryContainer tint band.
+- Raw text kept in hidden sibling EDITs (same control ids, MLH style without WS_VISIBLE) so every save/collect/validation path is unchanged; listboxes (LBS_OWNERDRAWFIXED|HASSTRINGS, LB_SETITEMHEIGHT 24/20) are seeded from config at load and synced back via sync_hidden() (also refreshes the "{n} bindings" pill).
+- Editing: double-click a row (or ＋ Add) opens an in-place overlay EDIT over the row (append slot below the last row); commit on EN_KILLFOCUS; empty edit = delete row. ＋/✕: tiny tonal buttons on each exclusion card header (ID_ADD/ID_DEL ranges), ＋ seeds from the current selection; hotkeys card has a ＋ Add / ✕ Remove TXTBTN strip at the bottom.
+- Win32 listbox lessons learned (cost real time): the item DC covers the *whole* list — every row must erase its own rect and offset its drawing by rcItem.top, or all rows stack at the top; LBS_HASSTRINGS has no in-place replace (delete+insert); `MapWindowPoints` lives in Graphics::Gdi on windows-sys 0.61 (POINT-based → map_rect() helper); pattern ranges can't contain non-const expressions (ID_LAST_ROWBTN const).
+- vk parse bug: config serializes vk as {:#x} ("0x25") but parse_row used base-10 parse — keycaps never rendered. Fixed with explicit 0x-prefix radix parsing.
+- Renamed "Window classes" card title → "Classes" (header collided with the ＋/✕ buttons at 212 logical px card width).
+- Known nits (accepted): system-white listbox scrollbar; only ~4 rows visible before scrolling (by design, rows scroll).
+- Verified: build clean, full-window screenshot (rows render separated with chips/keycaps/actions), LB_GETITEMHEIGHT probe (30/30/30/36 physical = correct), Save smoke → config.txt byte-identical, Flow plugin exe copy refreshed, daemon restarted.

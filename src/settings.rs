@@ -24,20 +24,20 @@ use windows_sys::Win32::Graphics::Gdi::{
     DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, PAINTSTRUCT,
 };
 use windows_sys::Win32::UI::Controls::{
-    DRAWITEMSTRUCT, ODS_DISABLED, ODS_SELECTED, ODT_BUTTON, ODT_STATIC,
+    DRAWITEMSTRUCT, ODS_DISABLED, ODS_SELECTED, ODT_BUTTON, ODT_LISTBOX, ODT_STATIC,
 };
 use windows_sys::Win32::UI::HiDpi::{
     GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetDlgCtrlID, GetDlgItem,
-    GetMessageW, GetPropW, GetWindowTextW, IsDialogMessageW, PostQuitMessage, RegisterClassW,
-    SendMessageW, SetForegroundWindow, SetPropW, SetWindowTextW, ShowWindow,
-    RemovePropW, TranslateMessage, BM_GETCHECK, BM_SETCHECK, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_AUTOVSCROLL,
-    ES_MULTILINE, MSG, SW_RESTORE, SW_SHOW, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN,
-    WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DRAWITEM, WM_ERASEBKGND, WM_PAINT,
-    WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CHILD, WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_TABSTOP,
-    WS_VISIBLE,
+    GetMessageW, GetPropW, GetWindowTextW, IsDialogMessageW, MoveWindow,
+    PostQuitMessage, RegisterClassW, RemovePropW, SendMessageW, SetForegroundWindow, SetPropW,
+    SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, CW_USEDEFAULT,
+    ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, MSG, SW_HIDE, SW_RESTORE, SW_SHOW, WM_CLOSE,
+    WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC,
+    WM_DESTROY, WM_DRAWITEM, WM_ERASEBKGND, WM_PAINT, WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CHILD,
+    WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE,
 };
 
 // constants that live in other feature modules; inlined to keep the feature set small
@@ -79,6 +79,17 @@ const ID_TILING_INTERVAL: i32 = 104;
 const ID_EX_TITLES: i32 = 111;
 const ID_EX_CLASSES: i32 = 112;
 const ID_EX_PIDS: i32 = 113;
+// designed list rows (owner-draw listboxes; raw text lives in the hidden edits)
+const ID_LB_TITLES: i32 = 161;
+const ID_LB_CLASSES: i32 = 162;
+const ID_LB_PIDS: i32 = 163;
+const ID_LB_HOTKEYS: i32 = 164;
+// per-card row actions: ＋ add / ✕ remove
+const ID_ADD: i32 = 181; // ..181..184, del 185..188
+const ID_DEL: i32 = 185;
+// shared in-place overlay edit for a single list row
+const ID_OVERLAY: i32 = 190;
+const ID_LAST_ROWBTN: i32 = ID_DEL + 3;
 const ID_BORDERS_ENABLE: i32 = 114;
 const ID_BORDERS_THICKNESS: i32 = 115;
 const ID_BORDERS_ACCENT: i32 = 116;
@@ -462,6 +473,9 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             let d = lparam as *const DRAWITEMSTRUCT;
             if (*d).CtlType as u32 == ODT_STATIC {
                 draw_pill(d);
+            } else if (*d).CtlType as u32 == ODT_LISTBOX {
+                let narrow = (*d).CtlID as i32 != ID_LB_HOTKEYS;
+                draw_list_row(d, narrow);
             } else {
                 draw_button(d);
             }
@@ -473,6 +487,13 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             SetBkMode(wparam as *mut _, TRANSPARENT);
             SetTextColor(wparam as *mut _, CLR_TEXT);
             t.field_bg as LRESULT
+        }
+        // listboxes (and the overlay row editor) sit on cards
+        WM_CTLCOLORLISTBOX => {
+            let t = THEME.get().unwrap();
+            SetBkMode(wparam as *mut _, TRANSPARENT);
+            SetTextColor(wparam as *mut _, CLR_TEXT);
+            t.card_bg as LRESULT
         }
         WM_CTLCOLORBTN => {
             // only the native checkboxes; draw them on the card surface
@@ -531,7 +552,67 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     }
                     0
                 }
-                _ => 0,
+                // ---- designed list rows: add / remove / overlay editing --------
+                ID_ADD..=ID_LAST_ROWBTN => {
+                    // a pending overlay commit fires first via EN_KILLFOCUS
+                    overlay_commit(hwnd);
+                    let which = (id - ID_ADD) % 4; // 0..=3
+                    let lbid = [
+                        ID_LB_TITLES,
+                        ID_LB_CLASSES,
+                        ID_LB_PIDS,
+                        ID_LB_HOTKEYS,
+                    ][which as usize];
+                    if id < ID_DEL {
+                        // ＋: open an empty editor in the append slot
+                        let h = GetDlgItem(hwnd, lbid);
+                        let prev = SendMessageW(h, LB_GETCURSEL, 0, 0) as i32;
+                        let seed = if prev >= 0 {
+                            let sl = SendMessageW(h, LB_GETTEXTLEN, prev as _, 0) as i32;
+                            let mut buf = vec![0u16; (sl.max(0) as usize) + 1];
+                            SendMessageW(h, LB_GETTEXT, prev as _, buf.as_mut_ptr() as LPARAM);
+                            String::from_utf16_lossy(&buf[..sl as usize])
+                        } else {
+                            String::new()
+                        };
+                        overlay_open(hwnd, lbid, -1, &seed);
+                    } else {
+                        // ✕: remove the selected row
+                        let h = GetDlgItem(hwnd, lbid);
+                        let sel = SendMessageW(h, LB_GETCURSEL, 0, 0) as i32;
+                        if sel >= 0 {
+                            SendMessageW(h, LB_DELETESTRING, sel as _, 0);
+                            SendMessageW(h, LB_SETCURSEL, sel.max(0) as usize, 0);
+                            sync_hidden(hwnd, lbid);
+                        }
+                    }
+                    0
+                }
+                ID_OVERLAY => {
+                    // overlay edit: commit on kill focus; double-click opens it
+                    let ntf = ((wparam >> 16) & 0xffff) as i32;
+                    if ntf == EN_KILLFOCUS {
+                        overlay_commit(hwnd);
+                    }
+                    0
+                }
+                _ => {
+                    // listbox notifications arrive by control id: LBN_DBLCLK(2)
+                    let ntf = ((wparam >> 16) & 0xffff) as i32;
+                    if ntf == LBN_DBLCLK && (ID_LB_TITLES..=ID_LB_HOTKEYS).contains(&id) {
+                        let h = GetDlgItem(hwnd, id);
+                        let sel = SendMessageW(h, LB_GETCURSEL, 0, 0) as i32;
+                        if sel >= 0 {
+                            let sl = SendMessageW(h, LB_GETTEXTLEN, sel as _, 0) as i32;
+                            let mut buf = vec![0u16; sl as usize + 1];
+                            SendMessageW(h, LB_GETTEXT, sel as _, buf.as_mut_ptr() as LPARAM);
+                            let text = String::from_utf16_lossy(&buf[..sl as usize]);
+                            overlay_open(hwnd, id, sel, &text);
+                        }
+                        return 0;
+                    }
+                    0
+                }
             }
         }
         WM_CLOSE | WM_DESTROY => {
@@ -594,8 +675,314 @@ unsafe fn draw_pill(d: *const DRAWITEMSTRUCT) {
     }
 }
 
-/// M3-style rounded buttons drawn by hand: primary = filled lavender for
-/// "Save & Apply", others = outlined tonal buttons.
+// ---------------------------------------------------------------------------
+// Designed list rows (Linear-style): owner-draw listboxes; hotkey rows get
+// name + modifier chips + keycap + dim action, exclusion rows plain text.
+// Raw text is kept in the hidden sibling EDIT (all save paths unchanged).
+// ---------------------------------------------------------------------------
+const LBS_NOTIFY: u32 = 0x0001;
+const LBS_OWNERDRAWFIXED: u32 = 0x0010;
+const LBS_HASSTRINGS: u32 = 0x0040;
+const LBS_NOINTEGRALHEIGHT: u32 = 0x0100;
+const LBX: u32 = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER
+    | LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT | 0x0020_0000;
+const LB_ADDSTRING: u32 = 0x0180;
+const LB_INSERTSTRING: u32 = 0x0181;
+const LB_DELETESTRING: u32 = 0x0182;
+const LB_RESETCONTENT: u32 = 0x0184;
+const LB_SETCURSEL: u32 = 0x0186;
+const LB_GETCURSEL: u32 = 0x0188;
+const LB_GETTEXT: u32 = 0x0189;
+const LB_GETTEXTLEN: u32 = 0x018A;
+const LB_GETCOUNT: u32 = 0x018B;
+const LB_GETITEMRECT: u32 = 0x0198;
+const LB_SETITEMHEIGHT: u32 = 0x01A0;
+const LBN_DBLCLK: i32 = 2;
+const EN_KILLFOCUS: i32 = 0x0201;
+const ODTS_SELECTED: u32 = 1; // ODS_SELECTED
+
+/// Hidden raw-text edits: same ids as before, invisible, save paths unchanged.
+const MLH: u32 = WS_CHILD | (ES_MULTILINE | ES_AUTOVSCROLL) as u32;
+
+fn hidden_of(lbid: i32) -> i32 {
+    match lbid {
+        ID_LB_TITLES => ID_EX_TITLES,
+        ID_LB_CLASSES => ID_EX_CLASSES,
+        ID_LB_PIDS => ID_EX_PIDS,
+        _ => ID_HOTKEYS,
+    }
+}
+
+fn vk_name(vk: u16) -> String {
+    match vk {
+        0x25 => "←".into(),
+        0x26 => "↑".into(),
+        0x27 => "→".into(),
+        0x28 => "↓".into(),
+        0x09 => "⇥".into(),
+        0x20 => "⎵".into(),
+        0x21 => "PgUp".into(),
+        0x22 => "PgDn".into(),
+        0x23 => "End".into(),
+        0x24 => "Home".into(),
+        0x70..=0x7B => format!("F{}", vk - 0x70 + 1),
+        0x41..=0x5A => (vk as u8 as char).to_string(),
+        0x30..=0x39 => (vk as u8 as char).to_string(),
+        _ => format!("{vk:#x}"),
+    }
+}
+
+/// parse "name|mods|vk|action" (anything else → plain single-field row)
+fn parse_row(line: &str) -> (String, u16, Option<u16>, String) {
+    let p: Vec<&str> = line.splitn(4, '|').collect();
+    if p.len() < 4 {
+        let mut it = p.into_iter();
+        let name = it.next().unwrap_or("").to_string();
+        return (name, 0, None, String::new());
+    }
+    let mods = p[1].trim().parse::<u16>().unwrap_or(0);
+    // vk is serialized as {:#x} ("0x25") — accept both hex and decimal
+    let vkraw = p[2].trim();
+    let vk = if let Some(hex) = vkraw.strip_prefix("0x").or_else(|| vkraw.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16).ok()
+    } else {
+        vkraw.parse::<u32>().ok()
+    }
+    .and_then(|v| u16::try_from(v).ok());
+    (p[0].trim().to_string(), mods, vk, p[3].to_string())
+}
+
+/// One designed row. Exclusion cards pass narrow=true (plain text row).
+unsafe fn draw_list_row(d: *const DRAWITEMSTRUCT, narrow: bool) {
+    let hdc = (*d).hDC;
+    let rc = (*d).rcItem;
+    let w = rc.right - rc.left;
+    let h = rc.bottom - rc.top;
+    let sel = (*d).itemState & ODTS_SELECTED != 0;
+    let hwnd = (*d).hwndItem;
+    let idx = (*d).itemID as usize;
+
+    // erase the row first (DC covers the whole list), then tint if selected
+    let base = CreateSolidBrush(CLR_CARD);
+    let bp = CreatePen(PS_SOLID, 1, CLR_CARD);
+    let ob = SelectObject(hdc, base as *mut _);
+    let op = SelectObject(hdc, bp as *mut _);
+    RoundRect(hdc, rc.left, rc.top, rc.right + 2, rc.bottom + 2, s(10), s(10));
+    SelectObject(hdc, ob);
+    SelectObject(hdc, op);
+    windows_sys::Win32::Graphics::Gdi::DeleteObject(base as *mut _);
+    windows_sys::Win32::Graphics::Gdi::DeleteObject(bp as *mut _);
+
+    // selection tint (Linear-style: soft primaryContainer band)
+    if sel {
+        let b = CreateSolidBrush(CLR_ICON_TILE);
+        let p = CreatePen(PS_SOLID, 1, CLR_ICON_TILE);
+        let ob = SelectObject(hdc, b as *mut _);
+        let op = SelectObject(hdc, p as *mut _);
+        RoundRect(hdc, rc.left + 1, rc.top, rc.right, rc.bottom, s(8), s(8));
+        SelectObject(hdc, ob);
+        SelectObject(hdc, op);
+        windows_sys::Win32::Graphics::Gdi::DeleteObject(b as *mut _);
+        windows_sys::Win32::Graphics::Gdi::DeleteObject(p as *mut _);
+    }
+
+    let sl = SendMessageW(hwnd, LB_GETTEXTLEN, idx as _, 0) as i32;
+    if sl <= 0 {
+        return;
+    }
+    let mut buf = vec![0u16; sl as usize + 1];
+    SendMessageW(hwnd, LB_GETTEXT, idx as _, buf.as_mut_ptr() as LPARAM);
+    let line = String::from_utf16_lossy(&buf[..sl as usize]);
+    let (name, mods, vk, action) = parse_row(&line);
+
+    let Some(t) = THEME.get() else { return };
+    SetBkMode(hdc, TRANSPARENT);
+    let mut x = rc.left + s(12);
+
+    if narrow {
+        SetTextColor(hdc, CLR_TEXT);
+        SelectObject(hdc, t.font as *mut _);
+        let chars: Vec<u16> = name.encode_utf16().collect();
+        TextOutW(hdc, x, rc.top + (h - s(16)) / 2, chars.as_ptr(), chars.len() as i32);
+        return;
+    }
+
+    // hotkey row: name · modifier chips · keycap · → action
+    SetTextColor(hdc, CLR_TEXT);
+    SelectObject(hdc, t.hfont as *mut _);
+    let chars: Vec<u16> = name.encode_utf16().collect();
+    let mut szn = windows_sys::Win32::Foundation::SIZE { cx: 0, cy: 0 };
+    GetTextExtentPoint32W(hdc, chars.as_ptr(), chars.len() as i32, &mut szn);
+    TextOutW(hdc, x, rc.top + (h - s(20)) / 2, chars.as_ptr(), chars.len() as i32);
+    x += szn.cx + s(10);
+
+    // chips for set modifier bits (8=win 1=alt 2=ctrl 4=shift)
+    let chips: [(&'static str, u16); 4] = [("Win", 8), ("Alt", 1), ("Ctrl", 2), ("Shift", 4)];
+    for (label, bit) in chips {
+        if mods & bit != 0 {
+            let wch: Vec<u16> = label.encode_utf16().collect();
+            let mut sz = windows_sys::Win32::Foundation::SIZE { cx: 0, cy: 0 };
+            SelectObject(hdc, t.smallf as *mut _);
+            GetTextExtentPoint32W(hdc, wch.as_ptr(), wch.len() as i32, &mut sz);
+            x += s(2);
+            let cw = sz.cx + s(10);
+            let cy = s(16);
+            let cy0 = rc.top + (h - cy) / 2;
+            let b = CreateSolidBrush(CLR_FIELD);
+            let p = CreatePen(PS_SOLID, 1, CLR_CARD_OUT);
+            let ob = SelectObject(hdc, b as *mut _);
+            let op = SelectObject(hdc, p as *mut _);
+            RoundRect(hdc, x, cy0, x + cw, cy0 + cy, s(8), s(8));
+            SelectObject(hdc, ob);
+            SelectObject(hdc, op);
+            windows_sys::Win32::Graphics::Gdi::DeleteObject(b as *mut _);
+            windows_sys::Win32::Graphics::Gdi::DeleteObject(p as *mut _);
+            SetTextColor(hdc, CLR_PRIMARY_DIM);
+            TextOutW(hdc, x + s(5), cy0 + s(1), wch.as_ptr(), wch.len() as i32);
+            SetTextColor(hdc, CLR_TEXT);
+            x += cw;
+        }
+    }
+
+    if let Some(vk) = vk {
+        // keycap: 20x20 inset box with the key glyph
+        x += s(4);
+        let kw = s(22);
+        let kh = s(18);
+        let ky = rc.top + (h - kh) / 2;
+        let b = CreateSolidBrush(CLR_FIELD);
+        let p = CreatePen(PS_SOLID, 1, CLR_CARD_OUT);
+        let ob = SelectObject(hdc, b as *mut _);
+        let op = SelectObject(hdc, p as *mut _);
+        RoundRect(hdc, x, ky, x + kw, ky + kh, s(4), s(4));
+        SelectObject(hdc, ob);
+        SelectObject(hdc, op);
+        windows_sys::Win32::Graphics::Gdi::DeleteObject(b as *mut _);
+        windows_sys::Win32::Graphics::Gdi::DeleteObject(p as *mut _);
+        SetTextColor(hdc, CLR_TEXT);
+        SelectObject(hdc, t.smallf as *mut _);
+        let glyph: Vec<u16> = vk_name(vk).encode_utf16().collect();
+        let mut szg = windows_sys::Win32::Foundation::SIZE { cx: 0, cy: 0 };
+        GetTextExtentPoint32W(hdc, glyph.as_ptr(), glyph.len() as i32, &mut szg);
+        TextOutW(hdc, x + (kw - szg.cx) / 2, ky + (kh - s(14)) / 2, glyph.as_ptr(), glyph.len() as i32);
+        x += kw;
+    }
+
+    // action, dim, right-aligned
+    if !action.is_empty() {
+        SetTextColor(hdc, CLR_TEXT_DIM);
+        SelectObject(hdc, t.smallf as *mut _);
+        let acts: Vec<u16> = format!("→ {}", action.trim()).encode_utf16().collect();
+        let mut sza = windows_sys::Win32::Foundation::SIZE { cx: 0, cy: 0 };
+        GetTextExtentPoint32W(hdc, acts.as_ptr(), acts.len() as i32, &mut sza);
+        TextOutW(hdc, rc.right - s(12) - sza.cx, rc.top + (h - s(16)) / 2, acts.as_ptr(), acts.len() as i32);
+    }
+}
+
+/// Command order to keep hidden edits in sync with what the lists show.
+unsafe fn sync_hidden(parent: HWND, lbid: i32) {
+    let h = GetDlgItem(parent, lbid);
+    let n = SendMessageW(h, LB_GETCOUNT, 0, 0) as i32;
+    let mut parts: Vec<String> = Vec::new();
+    for i in 0..n {
+        let sl = SendMessageW(h, LB_GETTEXTLEN, i as _, 0) as i32;
+        if sl < 0 {
+            continue;
+        }
+        let mut buf = vec![0u16; sl as usize + 1];
+        SendMessageW(h, LB_GETTEXT, i as _, buf.as_mut_ptr() as LPARAM);
+        parts.push(String::from_utf16_lossy(&buf[..sl as usize]));
+    }
+    set_text(parent, hidden_of(lbid), &parts.join("\r\n"));
+    if lbid == ID_LB_HOTKEYS {
+        set_text(parent, ID_PILL_BINDINGS, &format!("{} bindings", parts.len()));
+    }
+}
+
+// overlay edit state: (list id, row — row -1 = "append at end")
+/// Coords: Gdi-exposed MapWindowPoints works on POINTs; map a whole RECT.
+unsafe fn map_rect(hfrom: HWND, hto: HWND, rc: &mut windows_sys::Win32::Foundation::RECT) {
+    let mut pts = [
+        windows_sys::Win32::Foundation::POINT { x: rc.left, y: rc.top },
+        windows_sys::Win32::Foundation::POINT { x: rc.right, y: rc.bottom },
+    ];
+    windows_sys::Win32::Graphics::Gdi::MapWindowPoints(hfrom, hto, pts.as_mut_ptr(), 2);
+    rc.left = pts[0].x;
+    rc.top = pts[0].y;
+    rc.right = pts[1].x;
+    rc.bottom = pts[1].y;
+}
+
+static OVERLAY: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
+
+/// open the in-place row editor over `row` (or the append slot when row<0)
+unsafe fn overlay_open(parent: HWND, lbid: i32, row: i32, text: &str) {
+    let h = GetDlgItem(parent, lbid);
+    let n = SendMessageW(h, LB_GETCOUNT, 0, 0) as i32;
+    *OVERLAY.lock().unwrap() = Some((lbid, row));
+    let he = GetDlgItem(parent, ID_OVERLAY);
+    let wt = wide(text);
+    SetWindowTextW(he, wt.as_ptr());
+    overlay_position(parent, lbid, row, n);
+    // select all text
+    SendMessageW(he, 0x00B1 /*EM_SETSEL*/, 0, -1);
+    ShowWindow(he, SW_SHOW);
+    SetForegroundWindow(he);
+}
+
+/// place the overlay edit over the target row (parent coordinates)
+unsafe fn overlay_position(parent: HWND, lbid: i32, row: i32, n: i32) {
+    let he = GetDlgItem(parent, ID_OVERLAY);
+    if row >= 0 {
+        // over an existing row: item rect mapped into parent coords
+        let h = GetDlgItem(parent, lbid);
+        let mut rc: windows_sys::Win32::Foundation::RECT = std::mem::zeroed();
+        SendMessageW(h, LB_GETITEMRECT, row as _, &mut rc as *mut _ as LPARAM);
+        map_rect(h, parent, &mut rc);
+        rc.left += s(2);
+        rc.right -= s(2);
+        rc.top += s(1);
+        MoveWindow(he, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, 1);
+    } else {
+        // append slot: one row-height below the list, same width
+        let (lx, ly, lw) = match lbid {
+            ID_LB_TITLES => (32, 240, 184),
+            ID_LB_CLASSES => (256, 240, 184),
+            ID_LB_PIDS => (480, 240, 184),
+            _ => (34, 512, 628),
+        };
+        let rh = if lbid == ID_LB_HOTKEYS { 24 } else { 20 };
+        let y = ly + n * rh;
+        MoveWindow(he, s(lx + 1), s(y + 1), s(lw), s(rh), 1);
+    }
+}
+
+/// commit the overlay row editor (WM_COMMAND from EN_KILLFOCUS)
+unsafe fn overlay_commit(parent: HWND) {
+    let Some(state) = OVERLAY.lock().unwrap().take() else { return };
+    let (lbid, row) = state;
+    let text = get_text(parent, ID_OVERLAY).trim().to_string();
+    let he = GetDlgItem(parent, ID_OVERLAY);
+    ShowWindow(he, SW_HIDE);
+    let h = GetDlgItem(parent, lbid);
+    if row < 0 {
+        if !text.is_empty() {
+            SendMessageW(h, LB_ADDSTRING, 0, wide(&text).as_ptr() as LPARAM);
+        }
+    } else if row >= 0 {
+        if text.is_empty() {
+            // editing a row to empty = delete it
+            SendMessageW(h, LB_DELETESTRING, row as _, 0);
+        } else {
+            // LBS_HASSTRINGS has no in-place replace → remove old, insert new
+            SendMessageW(h, LB_INSERTSTRING, row as _, wide(&text).as_ptr() as LPARAM);
+            SendMessageW(h, LB_DELETESTRING, (row + 1) as _, 0);
+        }
+    }
+    sync_hidden(parent, lbid);
+}
+
+/// M3-style rounded buttons drawn by hand: primary = filled lavender for/// "Save & Apply", others = outlined tonal buttons.
 unsafe fn draw_button(d: *const DRAWITEMSTRUCT) {
     if (*d).CtlType as u32 != ODT_BUTTON {
         return;
@@ -673,6 +1060,17 @@ const BTN: u32 = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW;
 /// Clickable caption-style button (Material "text button"): flat lavender text.
 const TXTBTN: u32 = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW;
 
+/// owner-draw listbox with a fixed designed row height (px, logical)
+unsafe fn listbox(parent: HWND, x: i32, y: i32, w: i32, h: i32, id: i32, rowh: i32) {
+    child(parent, "LISTBOX", "", x, y, w, h, LBX, id, false);
+    SendMessageW(GetDlgItem(parent, id), LB_SETITEMHEIGHT, 0, s(rowh) as LPARAM);
+}
+
+/// tiny ＋/✕ owner-draw glyph button on a card header
+unsafe fn mini(parent: HWND, x: i32, y: i32, w: i32, h: i32, glyph: &'static str, id: i32) {
+    child(parent, "BUTTON", glyph, x, y, w, h, TXTBTN, id, false);
+}
+
 #[allow(non_snake_case)]
 unsafe fn build_form(parent: HWND) {
     let cfg = config::load();
@@ -701,11 +1099,20 @@ unsafe fn build_form(parent: HWND) {
 
     // ---- Exclusions — three dedicated cards ------------------------------------
     card(parent, 20, 188, 212, 150, '\u{E8A5}', "Window titles", "exclude by title substring");
-    child(parent, "EDIT", "", 32, 240, 188, 84, ML, ID_EX_TITLES, false);
-    card(parent, 244, 188, 212, 150, '\u{E943}', "Window classes", "exclude by Win32 class");
-    child(parent, "EDIT", "", 256, 240, 188, 84, ML, ID_EX_CLASSES, false);
+    child(parent, "EDIT", "", 32, 240, 188, 84, MLH, ID_EX_TITLES, false);
+    listbox(parent, 32, 240, 188, 84, ID_LB_TITLES, 20);
+    mini(parent, 232 - 52, 200, 22, 20, "＋", ID_ADD); // ＋ / ✕ in the card header
+    mini(parent, 232 - 26, 200, 22, 20, "✕", ID_DEL);
+    card(parent, 244, 188, 212, 150, '\u{E943}', "Classes", "exclude by Win32 class");
+    child(parent, "EDIT", "", 256, 240, 188, 84, MLH, ID_EX_CLASSES, false);
+    listbox(parent, 256, 240, 188, 84, ID_LB_CLASSES, 20);
+    mini(parent, 456 - 52, 200, 22, 20, "＋", ID_ADD + 1);
+    mini(parent, 456 - 26, 200, 22, 20, "✕", ID_DEL + 1);
     card(parent, 468, 188, 212, 150, '\u{E946}', "Process IDs", "exclude by image pid");
-    child(parent, "EDIT", "", 480, 240, 188, 84, ML, ID_EX_PIDS, false);
+    child(parent, "EDIT", "", 480, 240, 188, 84, MLH, ID_EX_PIDS, false);
+    listbox(parent, 480, 240, 188, 84, ID_LB_PIDS, 20);
+    mini(parent, 680 - 52, 200, 22, 20, "＋", ID_ADD + 2);
+    mini(parent, 680 - 26, 200, 22, 20, "✕", ID_DEL + 2);
 
     // ---- Border overlays (card) ------------------------------------------------
     card(parent, 20, 354, 660, 84, '\u{E7B3}', "Border overlays", "ring drawn around managed windows");
@@ -725,7 +1132,13 @@ unsafe fn build_form(parent: HWND) {
         WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, ID_PILL_BINDINGS, false,
     );
     set_text(parent, ID_PILL_BINDINGS, &format!("{} bindings", cfg.hotkeys.len()));
-    child(parent, "EDIT", "", 32, 528, 636, 120, ML, ID_HOTKEYS, false);
+    child(parent, "EDIT", "", 32, 528, 636, 120, MLH, ID_HOTKEYS, false);
+    listbox(parent, 34, 512, 628, 100, ID_LB_HOTKEYS, 24);
+    child(parent, "BUTTON", "＋ Add", 506, 620, 72, 24, TXTBTN, ID_ADD + 3, false);
+    child(parent, "BUTTON", "✕ Remove", 584, 620, 86, 24, TXTBTN, ID_DEL + 3, false);
+
+    // shared in-place row editor (hidden until a row is double-clicked)
+    child(parent, "EDIT", "", -2000, -2000, 10, 10, WS_CHILD | WS_BORDER | WS_TABSTOP, ID_OVERLAY, false);
 
     // ---- bottom bar -----------------------------------------------------------
     child(parent, "BUTTON", "", 20, 678, 128, 30, BTN, ID_SAVE_APPLY, false);
@@ -748,6 +1161,17 @@ unsafe fn build_form(parent: HWND) {
         format!("{}|{}|{:#x}|{}", h.name, h.modifiers, h.vk, h.action)
     }).collect();
     set_text(parent, ID_HOTKEYS, &hklines.join("\r\n"));
+
+    // seed the designed lists from the same raw text
+    let seed = |id_raw: i32, id_lb: i32| {
+        for line in get_text(parent, id_raw).lines() {
+            SendMessageW(GetDlgItem(parent, id_lb), LB_ADDSTRING, 0, wide(line).as_ptr() as LPARAM);
+        }
+    };
+    seed(ID_EX_TITLES, ID_LB_TITLES);
+    seed(ID_EX_CLASSES, ID_LB_CLASSES);
+    seed(ID_EX_PIDS, ID_LB_PIDS);
+    seed(ID_HOTKEYS, ID_LB_HOTKEYS);
 }
 
 unsafe fn set_text(parent: HWND, id: i32, txt: &str) {
