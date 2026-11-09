@@ -53,3 +53,12 @@
 - Live color swatches: 12×20 rounded owner-draw statics next to the Accent/Muted fields, parse_color("#RRGGBB"→COLORREF 0x00BBGGRR), invalidated on EN_CHANGE — typing a hex updates the preview instantly.
 - Bugs fixed this round: swatch statics were created without WS_VISIBLE (invisible), swatch DC origin is the static's client (draw 0,0..w,h like pills), and initial parse interpreted RRGGBB as COLORREF directly → BGR-swapped salmon; now explicit per-channel parse.
 - Verified: build clean, full screenshot (dark scrollbar+checkbox, hints show in empty lists, swatches correct purple/gray), Save smoke → config identical, Flow plugin exe refreshed.
+
+## 2026-11-09 — Settings polish round 3 (button hover, hint row, Enter/Esc)
+- Status: Done
+- Button hover feedback: BS_OWNERDRAW never reports ODS_HOTLIGHT without an activation-context manifest, so hover is driven by a WM_TIMER poll — SendTimer(hwnd,1,60ms) armed at WM_CREATE; hover_poll() diffs hovered_btn() (screen-space GetCursorPos vs each button's GetWindowRect, gated on GetForegroundWindow==parent) against BTN_HOVER atomic and invalidates only the changing buttons; draw_button lifts the surface to CLR_ICON_TILE when hot.
+- Root-cause lesson: the first hovered_btn converted the rect with ScreenToClient but compared raw screen cursor coords — two mismatched spaces, hover silently never true (title showed T ticks incrementing, H=-1). Compare screen vs screen directly.
+- Subclass (GetWindowLongPtrW/SetWindowLongPtrW + TrackMouseEvent TME_LEAVE) was attempted first and abandoned — cross-process probes can't verify subclass state and the timer poll is simpler and didn't need it.
+- Hint row under the Hotkeys list: "double-click a row to edit · ⏎ commits · blank = delete" (LBLCARD_BASE+7 static, CLR_TEXT_DIM on card bg).
+- Overlay row editor: removed WS_TABSTOP (Tab could land on the parked offscreen invisible EDIT — invisible-focus-trap bug); Enter=commit / Esc=cancel handled at the pump level before IsDialogMessageW (VK_RETURN/VK_ESCAPE from KeyboardAndMouse module; overlay_commit reads via GetDlgItemTextW so no focus dependency).
+- Verified: build clean, hover probe (real cursor onto button GetWindowRect center + screen capture: ＋ Add renders lit CLR_ICON_TILE fill cold-render stays dim), Save smoke → "daemon reloaded (port 17331)", full screenshot (hint row + swatches + dark controls all render), Flow plugin exe refreshed, komorebi ignore-rule re-applied after restart (EXIT=0) at 1074×1106 geometry.

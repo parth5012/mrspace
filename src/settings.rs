@@ -30,15 +30,17 @@ use windows_sys::Win32::UI::HiDpi::{
     GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetDlgCtrlID, GetDlgItem,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetDlgCtrlID, GetDlgItem,
     GetMessageW, GetParent, GetPropW, GetWindowTextW, IsDialogMessageW, MoveWindow,
     PostQuitMessage, RegisterClassW, RemovePropW, SendMessageW, SetForegroundWindow, SetPropW,
     SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, CW_USEDEFAULT,
     ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, MSG, SW_HIDE, SW_RESTORE, SW_SHOW, WM_CLOSE,
     WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC,
-    WM_DESTROY, WM_DRAWITEM, WM_ERASEBKGND, WM_PAINT, WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CHILD,
-    WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE,
+    WM_DESTROY, WM_DRAWITEM, WM_KEYDOWN, WM_PAINT, WM_SETFONT,
+    WNDCLASSW,
+    WS_BORDER, WS_CHILD, WS_EX_TOOLWINDOW, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE,
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_ESCAPE, VK_RETURN};
 
 // constants that live in other feature modules; inlined to keep the feature set small
 const BST_CHECKED: isize = 1;
@@ -373,6 +375,17 @@ pub fn show() {
                 break;
             }
             if let Some(h) = MAIN_HWND.get() {
+                // overlay row editor: Enter = commit, Esc = cancel
+                if msg.message == WM_KEYDOWN && OVERLAY.lock().unwrap().is_some() {
+                    let vk = (msg.wParam & 0xffff) as u32;
+                    if vk == VK_RETURN as u32 {
+                        overlay_commit(*h as _);
+                        continue;
+                    } else if vk == VK_ESCAPE as u32 {
+                        overlay_cancel(*h as _);
+                        continue;
+                    }
+                }
                 if IsDialogMessageW(*h as _, &mut msg) != 0 {
                     continue; // TAB navigation / accelerators handled
                 }
@@ -452,6 +465,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
     match msg {
         WM_CREATE => {
             build_form(hwnd);
+            hover_arm(hwnd);
             0
         }
         // in-content page header (Untitled UI pattern): big title + helper line
@@ -473,6 +487,11 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 TextOutW(hdc, s(22), s(48), helper.as_ptr(), helper.len() as i32);
             }
             EndPaint(hwnd, &mut ps);
+            0
+        }
+        // hover poll: diff+repaint the hovered owner-draw button
+        0x0113 /* WM_TIMER */ => {
+            hover_poll(hwnd);
             0
         }
         WM_DRAWITEM => {
@@ -700,6 +719,76 @@ unsafe fn draw_pill(d: *const DRAWITEMSTRUCT) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Button hover tracking: BS_OWNERDRAW never reports ODS_HOTLIGHT without an
+// activation-context manifest, so subclass each button to watch the mouse and
+// repaint via WM_DRAWITEM. ORIG holds the native proc per subclassed hwnd.
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Button hover tracking: BS_OWNERDRAW never reports ODS_HOTLIGHT without an
+// activation-context manifest. Instead of subclassing, a light WM_TIMER walks
+// the owner-draw buttons, diff-invalidates on hover change, and draw_button
+// reads BTN_HOVER at paint time.
+// ---------------------------------------------------------------------------
+const GWLP_WNDPROC: i32 = -4;
+static BTN_HOVER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+/// button ids drawn by draw_button (hover candidates)
+const HOT_IDS: [i32; 11] = [
+    ID_ADD, ID_ADD + 1, ID_ADD + 2, ID_ADD + 3,
+    ID_DEL, ID_DEL + 1, ID_DEL + 2, ID_DEL + 3,
+    ID_SAVE_APPLY, ID_SAVE, ID_CANCEL,
+];
+
+/// id under the cursor right now (or -1)
+unsafe fn hovered_btn(parent: HWND) -> i32 {
+    let mut c = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
+    windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut c);
+    for id in HOT_IDS {
+        let h = GetDlgItem(parent, id);
+        if h.is_null() {
+            continue;
+        }
+        let mut wr = windows_sys::Win32::Foundation::RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect(h, &mut wr);
+        // both cursor and window rect are screen coordinates — compare directly
+        if c.x >= wr.left && c.x < wr.right && c.y >= wr.top && c.y < wr.bottom {
+            // only show hover when our window owns the cursor (not in bg)
+            let fg = windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
+            return if fg == parent { id } else { -1 };
+        }
+    }
+    -1
+}
+
+/// arm the hover poll timer (called from WM_CREATE)
+unsafe fn hover_arm(hwnd: HWND) {
+    windows_sys::Win32::UI::WindowsAndMessaging::SetTimer(hwnd, 1, 60, None);
+}
+
+/// poll: diff the hovered id and repaint the two affected buttons
+unsafe fn hover_poll(hwnd: HWND) {
+    let now = hovered_btn(hwnd);
+    let prev = BTN_HOVER.swap(now, std::sync::atomic::Ordering::SeqCst);
+    if prev != now {
+        if prev >= 0 {
+            windows_sys::Win32::Graphics::Gdi::InvalidateRect(
+                GetDlgItem(hwnd, prev), std::ptr::null(), 1,
+            );
+        }
+        if now >= 0 {
+            windows_sys::Win32::Graphics::Gdi::InvalidateRect(
+                GetDlgItem(hwnd, now), std::ptr::null(), 1,
+            );
+        }
+    }
+}
+
+/// hover state read at paint time (BTN_HOVER == control id)
+unsafe fn btn_hot(id: i32) -> bool {
+    BTN_HOVER.load(std::sync::atomic::Ordering::SeqCst) == id
+}
 // ---------------------------------------------------------------------------
 // Designed list rows (Linear-style): owner-draw listboxes; hotkey rows get
 // name + modifier chips + keycap + dim action, exclusion rows plain text.
@@ -1039,6 +1128,14 @@ unsafe fn overlay_commit(parent: HWND) {
     update_hints(parent);
 }
 
+/// close the overlay editor without changing the row (Esc)
+unsafe fn overlay_cancel(parent: HWND) {
+    if OVERLAY.lock().unwrap().is_some() {
+        *OVERLAY.lock().unwrap() = None;
+        ShowWindow(GetDlgItem(parent, ID_OVERLAY), SW_HIDE);
+    }
+}
+
 /// M3-style rounded buttons drawn by hand: primary = filled lavender for/// "Save & Apply", others = outlined tonal buttons.
 unsafe fn draw_button(d: *const DRAWITEMSTRUCT) {
     if (*d).CtlType as u32 != ODT_BUTTON {
@@ -1052,6 +1149,7 @@ unsafe fn draw_button(d: *const DRAWITEMSTRUCT) {
     let b = rc.bottom;
     let pressed = (*d).itemState & ODS_SELECTED != 0;
     let disabled = (*d).itemState & ODS_DISABLED != 0;
+    let hot = btn_hot((*d).CtlID as i32);
     let id = (*d).CtlID as i32;
     let primary = id == ID_SAVE_APPLY;
 
@@ -1064,6 +1162,9 @@ unsafe fn draw_button(d: *const DRAWITEMSTRUCT) {
         (CLR_FIELD, CLR_TEXT_DIM)
     } else if pressed {
         (CLR_PRIMARY_DIM, CLR_ON_PRIMARY)
+    } else if hot {
+        // hover: lift the surface a step (tonal → container-lit)
+        (CLR_ICON_TILE, text)
     } else {
         (fill, text)
     };
@@ -1228,9 +1329,14 @@ unsafe fn build_form(parent: HWND) {
     listbox(parent, 34, 512, 628, 100, ID_LB_HOTKEYS, 24);
     child(parent, "BUTTON", "＋ Add", 506, 620, 72, 24, TXTBTN, ID_ADD + 3, false);
     child(parent, "BUTTON", "✕ Remove", 584, 620, 86, 24, TXTBTN, ID_DEL + 3, false);
+    child(
+        parent, "STATIC", "double-click a row to edit · ⏎ commits · blank = delete", 34, 625, 320, 14,
+        WS_CHILD | WS_VISIBLE, LBLCARD_BASE + 7, false,
+    );
 
-    // shared in-place row editor (hidden until a row is double-clicked)
-    child(parent, "EDIT", "", -2000, -2000, 10, 10, WS_CHILD | WS_BORDER | WS_TABSTOP, ID_OVERLAY, false);
+    // shared in-place row editor (hidden until a row is double-clicked).
+    // No WS_TABSTOP — it must not join the tab order while parked offscreen.
+    child(parent, "EDIT", "", -2000, -2000, 10, 10, WS_CHILD | WS_BORDER, ID_OVERLAY, false);
 
     // ---- bottom bar -----------------------------------------------------------
     child(parent, "BUTTON", "", 20, 678, 128, 30, BTN, ID_SAVE_APPLY, false);
@@ -1264,7 +1370,7 @@ unsafe fn build_form(parent: HWND) {
     seed(ID_EX_CLASSES, ID_LB_CLASSES);
     seed(ID_EX_PIDS, ID_LB_PIDS);
     seed(ID_HOTKEYS, ID_LB_HOTKEYS);
-    update_hints(parent);
+    // hover diff-invalidate pass runs on the WM_TIMER set in WM_CREATE
 }
 
 unsafe fn set_text(parent: HWND, id: i32, txt: &str) {
