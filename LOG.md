@@ -63,6 +63,15 @@
 - Overlay row editor: removed WS_TABSTOP (Tab could land on the parked offscreen invisible EDIT — invisible-focus-trap bug); Enter=commit / Esc=cancel handled at the pump level before IsDialogMessageW (VK_RETURN/VK_ESCAPE from KeyboardAndMouse module; overlay_commit reads via GetDlgItemTextW so no focus dependency).
 - Verified: build clean, hover probe (real cursor onto button GetWindowRect center + screen capture: ＋ Add renders lit CLR_ICON_TILE fill cold-render stays dim), Save smoke → "daemon reloaded (port 17331)", full screenshot (hint row + swatches + dark controls all render), Flow plugin exe refreshed, komorebi ignore-rule re-applied after restart (EXIT=0) at 1074×1106 geometry.
 
+## 2026-11-10 — Border overlay fixes (stale "middle line" + fullscreen corner marks)
+- Status: Done
+- Root cause 1 (middle line): tick() only redrew overlays when w/h/color changed — a window that moved without resizing left its ring at the old rect (the "line" was a stale ring edge). Root cause 2 (corner marks): maximized/fullscreen targets have GetWindowRect == or beyond the screen, so rings painted offscreen leaving corner fragments.
+- Fix in borders.rs: Entry gains x/y/hidden; tick() computes IsZoomed(th) and a workarea-covering rect test; maximized/fullscreen targets get overlay ShowWindow(SW_HIDE) + skip (no ring on full-screen tiles, komorebi-style); un-hide via SW_SHOWNA + forced e.w=0 redraw; move-only changes reposition via SetWindowPos(HWND_TOPMOST, SWP_NOSIZE|SWP_NOACTIVATE); size/color changes still full-redraw (UpdateLayeredWindow moves too).
+- Probe lesson: Win11 notepad (store app) suspends when unfocused → SendMessageTimeout returns nothing → drains out of is_manageable; a hidden `Start-Process notepad -WindowStyle Hidden` yields MainWindowHandle=0. mspaint (classic Win32) is a reliable non-suspending probe. Console windows are per-instance conhost-hosted — process pid is NOT the window owner; MainWindowHandle stays 0 for spawned console apps from .NET.
+- Verified with EnumWindows probe (mrspace.border class): tiled → both rings visible; SW_MAXIMIZE → probe ring hidden (vis=False), sibling ring stays; SW_RESTORE → ring returns; single window tiled to full workarea → no overlay at all (stale line gone). Confirmed overlay handles alive (IsWindow) and rect-accurate via GetWindowRect; earlier "no overlays" reads were a <200ms tick race plus a stale daemon.
+- Debug tooling kept env-gated (MRS_TRACE=path): tiling.rs hook/wake/count lines and borders.rs tick cadence trace ([tick N] entries=k + per-entry tgt/overlay/alive/hidden/pos) — no-op in production runs.
+- Flow plugin exe refreshed; tiling left ON (user's normal state).
+
 ## 2026-11-10 — Tier 1.1: event-driven re-tile engine (SetWinEventHook)
 - Status: Done
 - ROADMAP.md added: competitor matrix (komorebi/GlazeWM v3/FancyZones vs us, RAM prioritized), the 10-item tiered plan, and the RAM guardrails (no idle polling, flat Vec window records, no scripting runtime/bundled bar/animations).

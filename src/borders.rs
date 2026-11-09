@@ -15,10 +15,11 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GetForegroundWindow, GetMessageW, GetWindowRect, IsIconic,
-    IsWindow, IsWindowVisible, RegisterClassExW, SetWindowPos, TranslateMessage,
-    DispatchMessageW, UpdateLayeredWindow, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, ULW_ALPHA,
-    WM_PAINT, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
-    WS_POPUP, WS_VISIBLE, WNDCLASSEXW,
+    IsWindow, IsWindowVisible, IsZoomed, RegisterClassExW, SetWindowPos, ShowWindow,
+    TranslateMessage, DispatchMessageW, UpdateLayeredWindow, MSG, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOWNA, ULW_ALPHA, WM_PAINT, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
+    WNDCLASSEXW, HWND_TOPMOST,
 };
 
 /// Runtime-configurable options (loaded from config.json's `borders` block).
@@ -71,9 +72,12 @@ const CLASS_NAME: &[u16] = &[
 
 struct Entry {
     overlay: isize,   // our layered window's hwnd
+    x: i32,
+    y: i32,
     w: i32,
     h: i32,
     color: u32,
+    hidden: bool,
 }
 
 static PENDING: LazyLock<Mutex<Vec<isize>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -193,8 +197,14 @@ unsafe fn tick() {
             // create the overlay lazily on first tick that sees the target
             entries.insert(
                 tgt,
-                Entry { overlay: 0, w: 0, h: 0, color: 0 },
+                Entry { overlay: 0, x: 0, y: 0, w: 0, h: 0, color: 0, hidden: true },
             );
+        }
+    }
+    let _tg = trace_tick_start(entries.len());
+    if let Some(ref tg) = _tg {
+        for (tgt, e) in entries.iter() {
+            trace_entry(tg, *tgt, e);
         }
     }
 
@@ -215,6 +225,32 @@ unsafe fn tick() {
         }
         let w = r.right - r.left;
         let h = r.bottom - r.top;
+        // no ring on maximized / fullscreen tiles: GetWindowRect extends past
+        // or matches the screen there, so the ring either paints offscreen
+        // (corner fragments) or just mirrors the screen edge
+        let maximized = IsZoomed(th) != 0;
+        let fullscreen = {
+            let wa = crate::win32::primary_work_area();
+            w >= wa.right - wa.left && h >= wa.bottom - wa.top
+        };
+        if maximized || fullscreen {
+            if e.overlay != 0 && !e.hidden {
+                windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                    e.overlay as HWND, SW_HIDE,
+                );
+                e.hidden = true;
+            }
+            continue;
+        }
+        if e.overlay != 0 && e.hidden {
+            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                e.overlay as HWND, SW_SHOWNA,
+            );
+            e.hidden = false;
+            // force a redraw+reposition below (rect will not have changed
+            // if the window was maximized and is restored to the same size)
+            e.w = 0;
+        }
         let th = opts().thickness;
         let min = th.clamp(1, 20) * 2;
         if w < min || h < min {
@@ -225,16 +261,34 @@ unsafe fn tick() {
         if e.overlay == 0 {
             e.overlay = create_overlay(w, h, r.left, r.top, color);
             if e.overlay != 0 {
+                e.x = r.left;
+                e.y = r.top;
                 e.w = w;
                 e.h = h;
                 e.color = color;
+                e.hidden = false;
             }
         } else if e.w != w || e.h != h || e.color != color {
+            // size/color change: full redraw (UpdateLayeredWindow also moves)
             redraw_overlay(e.overlay as HWND, w, h, r.left, r.top, color);
-            /*updated*/
+            e.x = r.left;
+            e.y = r.top;
             e.w = w;
             e.h = h;
             e.color = color;
+        } else if e.x != r.left || e.y != r.top {
+            // move-only: don't leave the ring where the window used to be
+            SetWindowPos(
+                e.overlay as HWND,
+                HWND_TOPMOST,
+                r.left,
+                r.top,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+            e.x = r.left;
+            e.y = r.top;
         }
     }
     for t in to_remove {
@@ -354,6 +408,61 @@ unsafe fn redraw_overlay(hwnd: HWND, w: i32, h: i32, x: i32, y: i32, color: u32)
     DeleteDC(mem_dc);
     ReleaseDC(std::ptr::null_mut(), scr_dc);
     fn BI_RGB_raw() -> u32 { 0u32 }
+}
+
+// TEMP debug trace, gated by MRS_TRACE=path (mirrors tiling.rs).
+// One cadence counter for the whole watchdog tick: every 25th tick emits the
+// entry-set header + per-entry detail lines. No-op when MRS_TRACE is unset.
+static TRACE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+struct TraceGuard;
+impl Drop for TraceGuard {
+    fn drop(&mut self) {
+        use std::io::Write;
+        if let Some(p) = TRACE.get_or_init(|| std::env::var("MRS_TRACE").ok()) {
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+                let _ = writeln!(f, "[detail end]");
+            }
+        }
+    }
+}
+fn trace_tick_start(n: usize) -> Option<TraceGuard> {
+    static CT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let c = CT.fetch_add(1, Ordering::Relaxed);
+    if c % 25 != 0 {
+        return None;
+    }
+    use std::io::Write;
+    if let Some(p) = TRACE.get_or_init(|| std::env::var("MRS_TRACE").ok()) {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            if writeln!(f, "[tick {}] entries={}", c, n).is_ok() {
+                return Some(TraceGuard);
+            }
+        }
+    }
+    None
+}
+fn trace_entry(g: &TraceGuard, tgt: isize, e: &Entry) {
+    use std::io::Write;
+    if let Some(p) = TRACE.get_or_init(|| std::env::var("MRS_TRACE").ok()) {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            let alive = if e.overlay != 0 {
+                unsafe { IsWindow(e.overlay as HWND) != 0 }
+            } else {
+                false
+            };
+            let mut rr = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+            if e.overlay != 0 {
+                unsafe { GetWindowRect(e.overlay as HWND, &mut rr); }
+            }
+            let _ = writeln!(
+                f,
+                "  tgt={:x} overlay={:x} alive={} hidden={} pos={},{}/{}x{} eres={}x{}",
+                tgt, e.overlay, alive, e.hidden,
+                e.x, e.y, e.w, e.h,
+                rr.right - rr.left, rr.bottom - rr.top
+            );
+        }
+    }
 }
 
 /// Remove all overlays immediately (used on cleanup / tiling off).
