@@ -115,8 +115,11 @@ pub fn is_manageable(hwnd: HWND) -> bool {
     for pat in &cfg.exclude_titles {
         if !pat.is_empty() && t.contains(&pat.to_lowercase()) { return false; }
     }
-    // Class-based exclusion (widget frameworks like Rainmeter).
+    // Built-in: never manage our own UI windows (settings app spawns as a normal
+    // top-level window and would otherwise be tiled away mid-use).
     let cls = class_name(hwnd);
+    if cls.eq_ignore_ascii_case("MrspaceSettings") { return false; }
+    // Class-based exclusion (widget frameworks like Rainmeter).
     for pat in &cfg.exclude_classes {
         if !pat.is_empty() && cls.eq_ignore_ascii_case(pat) { return false; }
     }

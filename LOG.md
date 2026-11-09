@@ -11,3 +11,12 @@
 - settings.rs is a full native desktop app (own process, single-instance, raise): ipc port, resize step/timeout, tiling interval, exclusion lists (titles/classes/pids), border enable/thickness/accent/muted, full hotkey table — per-field validation, Save / Save & Apply / Open Config / Cancel.
 - config.rs gained a serde(default) `borders` block; borders.rs consts → Mutex options + configure(); daemon 'settings' spawns the app (no longer blocks IPC), new 'reload-config' live-applies borders.
 - Verified: window visible (class MrspaceSettings), daemon responsive while open, remote WM_COMMAND Save wrote enriched config.json, thickness 6 reload applied live, fit-all overlays still render. In-app click testing (mouse/keyboard) left to the user.
+
+## 2026-11-09 — Settings app Material-3 dark restyle
+- Status: Done
+- M3-dark theme: near-black surface + container fields, purple accent headers/primary button, owner-draw rounded buttons (Save & Apply = filled lavender, others tonal outlined, pressed/disabled states), dark + rounded DWM title bar, Segoe UI.
+- Process is now Per-Monitor-DPI-aware: `s()` scales every layout value and fonts to system DPI — crisp at 150%, designed 716×760 logical geometry is exact on 1080p@150%.
+- Root-caused the persistent "wrong window geometry" mystery: the user's komorebi (third-party tiling WM) was grabbing and rezoning the settings window 1-3s after creation (even daemon-off; even WS_EX_TOOLWINDOW). Fix: `komorebic ignore-rule class MrspaceSettings` + hard-coded class exclusion in win32::is_manageable.
+- Also: hotkey edit enlarged, vertical layout compressed to fit the 1080p@150% client, DT_NOPREFIX so "&" renders in button text, try_apply dedupes port reload message.
+- Verified: full-window screenshots at design geometry, Save + Save & Apply smoke tests (config written, daemon reloaded live), single-instance raise via second `exec settings` — one window. Flow plugin exe copy refreshed.
+- Testing discovery logged in TESTING.md 6b (komorebi rule requirement).

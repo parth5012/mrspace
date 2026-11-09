@@ -103,6 +103,18 @@ Let each app sit somewhere different (no grid), then press with cursor over one 
 
 Open it via the palette's `Settings` row, `mrspace settings`, or the Flow plugin's Settings row.
 
+> **If komorebi is running:** register an ignore rule once so it doesn't tile the
+> settings window (`WS_EX_TOOLWINDOW` alone isn't enough — komorebi manages
+> toolwindows too):
+> ```
+> komorebic ignore-rule class MrspaceSettings
+> ```
+
+The window is Per-Monitor-DPI-aware: layout px are scaled by `s()` to the system
+DPI, so text stays crisp at 125%/150% scaling and the geometry is exactly the
+designed 716×760 logical size (1080p screens permit 760 height at 150% — the
+form is laid out to fit).
+
 1. Window opens **in its own process** (2nd mrspace process); daemon stays responsive (`mrspace exec "current-desktop"` returns while it's open).
 2. Open it a second time → no duplicate; the running window is raised instead.
 3. Change border thickness to `6`, click **Save & Apply** → status shows `daemon reloaded`; run `mrspace exec "fit-all"` → rings render at 6px. Set back to `3` when done.
