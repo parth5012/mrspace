@@ -109,14 +109,36 @@ struct CardData {
     glyph: [u16; 2], // MDL2 char + NUL
     title: String,
     desc: String,
+    hl: bool, // draw hairline separator under the header (wider list-style cards)
 }
 
 unsafe fn card(parent: HWND, x: i32, y: i32, w: i32, h: i32, glyph: char, title: &str, desc: &str) {
+    make_card(parent, x, y, w, h, glyph, title, desc, false)
+}
+
+/// Same card, but with the Untitled-UI hairline divider under the header row.
+#[allow(clippy::too_many_arguments)]
+unsafe fn card_w(parent: HWND, x: i32, y: i32, w: i32, h: i32, glyph: char, title: &str, desc: &str) {
+    make_card(parent, x, y, w, h, glyph, title, desc, true)
+}
+
+unsafe fn make_card(
+    parent: HWND,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    glyph: char,
+    title: &str,
+    desc: &str,
+    hl: bool,
+) {
     let g = wide(&glyph.to_string());
     let data = Box::new(CardData {
         glyph: [g[0], 0],
         title: title.into(),
         desc: desc.into(),
+        hl,
     });
     let cls = wide(CARD_CLASS);
     let h2 = CreateWindowExW(
@@ -192,6 +214,19 @@ unsafe extern "system" fn card_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam
                 SelectObject(hdc, t.smallf as *mut _);
                 let desc: Vec<u16> = d.desc.encode_utf16().collect();
                 TextOutW(hdc, s(54), s(36), desc.as_ptr(), desc.len() as i32);
+
+                // quiet "…" affordance, top-right (decorative)
+                let dots: Vec<u16> = "\u{E712}".encode_utf16().collect();
+                SetTextColor(hdc, CLR_TEXT_DIM);
+                TextOutW(hdc, w - s(30), s(12), dots.as_ptr(), dots.len() as i32);
+
+                // hairline separator under the header (Untitled UI row pattern)
+                if d.hl {
+                    let op = SelectObject(hdc, pen as *mut _);
+                    windows_sys::Win32::Graphics::Gdi::MoveToEx(hdc, s(14), s(54), std::ptr::null_mut());
+                    windows_sys::Win32::Graphics::Gdi::LineTo(hdc, w - s(14), s(54));
+                    SelectObject(hdc, op);
+                }
             }
         }
         EndPaint(hwnd, &mut ps);
@@ -400,6 +435,27 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
     match msg {
         WM_CREATE => {
             build_form(hwnd);
+            0
+        }
+        // in-content page header (Untitled UI pattern): big title + helper line
+        WM_PAINT => {
+            let mut ps: PAINTSTRUCT = std::mem::zeroed();
+            let hdc = BeginPaint(hwnd, &mut ps);
+            if let Some(t) = THEME.get() {
+                SetBkMode(hdc, TRANSPARENT);
+                SelectObject(hdc, t.titlef as *mut _);
+                SetTextColor(hdc, CLR_TEXT);
+                let title: Vec<u16> = "Settings".encode_utf16().collect();
+                TextOutW(hdc, s(22), s(12), title.as_ptr(), title.len() as i32);
+                SelectObject(hdc, t.smallf as *mut _);
+                SetTextColor(hdc, CLR_TEXT_DIM);
+                let helper: Vec<u16> =
+                    "Fine-tune layout, exclusions, borders and Win-chords — everything lands in config.json"
+                        .encode_utf16()
+                        .collect();
+                TextOutW(hdc, s(22), s(48), helper.as_ptr(), helper.len() as i32);
+            }
+            EndPaint(hwnd, &mut ps);
             0
         }
         WM_DRAWITEM => {
@@ -633,43 +689,43 @@ unsafe fn build_form(parent: HWND) {
     set_text(parent, ID_PILL_DAEMON, &format!("●{}", if daemon_up { " daemon running" } else { " daemon offline" }));
 
     // ---- Basics — port / steps / timeouts (card) ------------------------------
-    card(parent, 20, 58, 660, 96, '\u{E713}', "Basics", "IPC port · resize step · resize timeout · tiling interval (ms)");
-    child(parent, "STATIC", "IPC port", 34, 106, 70, 16, LBL, LBLCARD_BASE + 0, false);
-    child(parent, "EDIT", "", 34, 124, 96, 26, E, ID_PORT, false);
-    child(parent, "STATIC", "Resize step", 146, 106, 90, 16, LBL, LBLCARD_BASE + 1, false);
-    child(parent, "EDIT", "", 146, 124, 96, 26, E, ID_STEP, false);
-    child(parent, "STATIC", "Resize timeout", 258, 106, 120, 16, LBL, LBLCARD_BASE + 2, false);
-    child(parent, "EDIT", "", 258, 124, 96, 26, E, ID_TIMEOUT, false);
-    child(parent, "STATIC", "Tiling interval", 370, 106, 120, 16, LBL, LBLCARD_BASE + 3, false);
-    child(parent, "EDIT", "", 370, 124, 96, 26, E, ID_TILING_INTERVAL, false);
+    card(parent, 20, 76, 660, 96, '\u{E713}', "Basics", "IPC port · resize step · resize timeout · tiling interval (ms)");
+    child(parent, "STATIC", "IPC port", 34, 124, 70, 16, LBL, LBLCARD_BASE + 0, false);
+    child(parent, "EDIT", "", 34, 142, 96, 26, E, ID_PORT, false);
+    child(parent, "STATIC", "Resize step", 146, 124, 90, 16, LBL, LBLCARD_BASE + 1, false);
+    child(parent, "EDIT", "", 146, 142, 96, 26, E, ID_STEP, false);
+    child(parent, "STATIC", "Resize timeout", 258, 124, 120, 16, LBL, LBLCARD_BASE + 2, false);
+    child(parent, "EDIT", "", 258, 142, 96, 26, E, ID_TIMEOUT, false);
+    child(parent, "STATIC", "Tiling interval", 370, 124, 120, 16, LBL, LBLCARD_BASE + 3, false);
+    child(parent, "EDIT", "", 370, 142, 96, 26, E, ID_TILING_INTERVAL, false);
 
     // ---- Exclusions — three dedicated cards ------------------------------------
-    card(parent, 20, 170, 212, 150, '\u{E8A5}', "Window titles", "exclude by title substring");
-    child(parent, "EDIT", "", 32, 222, 188, 84, ML, ID_EX_TITLES, false);
-    card(parent, 244, 170, 212, 150, '\u{E943}', "Window classes", "exclude by Win32 class");
-    child(parent, "EDIT", "", 256, 222, 188, 84, ML, ID_EX_CLASSES, false);
-    card(parent, 468, 170, 212, 150, '\u{E946}', "Process IDs", "exclude by image pid");
-    child(parent, "EDIT", "", 480, 222, 188, 84, ML, ID_EX_PIDS, false);
+    card(parent, 20, 188, 212, 150, '\u{E8A5}', "Window titles", "exclude by title substring");
+    child(parent, "EDIT", "", 32, 240, 188, 84, ML, ID_EX_TITLES, false);
+    card(parent, 244, 188, 212, 150, '\u{E943}', "Window classes", "exclude by Win32 class");
+    child(parent, "EDIT", "", 256, 240, 188, 84, ML, ID_EX_CLASSES, false);
+    card(parent, 468, 188, 212, 150, '\u{E946}', "Process IDs", "exclude by image pid");
+    child(parent, "EDIT", "", 480, 240, 188, 84, ML, ID_EX_PIDS, false);
 
     // ---- Border overlays (card) ------------------------------------------------
-    card(parent, 20, 336, 660, 84, '\u{E7B3}', "Border overlays", "ring drawn around managed windows");
-    child(parent, "BUTTON", "Enable", 32, 386, 74, 24, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, ID_BORDERS_ENABLE, false);
-    child(parent, "STATIC", "Thickness", 122, 390, 70, 16, LBL, LBLCARD_BASE + 4, false);
-    child(parent, "EDIT", "", 204, 386, 46, 24, E, ID_BORDERS_THICKNESS, false);
-    child(parent, "STATIC", "Accent", 268, 390, 48, 16, LBL, LBLCARD_BASE + 5, false);
-    child(parent, "EDIT", "", 322, 386, 76, 24, E, ID_BORDERS_ACCENT, false);
-    child(parent, "STATIC", "Muted", 416, 390, 48, 16, LBL, LBLCARD_BASE + 6, false);
-    child(parent, "EDIT", "", 470, 386, 76, 24, E, ID_BORDERS_MUTED, false);
+    card(parent, 20, 354, 660, 84, '\u{E7B3}', "Border overlays", "ring drawn around managed windows");
+    child(parent, "BUTTON", "Enable", 32, 404, 74, 24, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, ID_BORDERS_ENABLE, false);
+    child(parent, "STATIC", "Thickness", 122, 408, 70, 16, LBL, LBLCARD_BASE + 4, false);
+    child(parent, "EDIT", "", 204, 404, 46, 24, E, ID_BORDERS_THICKNESS, false);
+    child(parent, "STATIC", "Accent", 268, 408, 48, 16, LBL, LBLCARD_BASE + 5, false);
+    child(parent, "EDIT", "", 322, 404, 76, 24, E, ID_BORDERS_ACCENT, false);
+    child(parent, "STATIC", "Muted", 416, 408, 48, 16, LBL, LBLCARD_BASE + 6, false);
+    child(parent, "EDIT", "", 470, 404, 76, 24, E, ID_BORDERS_MUTED, false);
 
     // ---- Hotkeys (card + bindings pill) ----------------------------------------
-    card(parent, 20, 436, 660, 232, '\u{E70F}', "Hotkeys", "one per line ·  name | modifiers | vk | action");
+    card_w(parent, 20, 454, 660, 206, '\u{E70F}', "Hotkeys", "one per line ·  name | modifiers | vk | action");
     child(
         parent, "STATIC", "",
-        560, 446, 110, 26,
+        560, 464, 110, 26,
         WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, ID_PILL_BINDINGS, false,
     );
     set_text(parent, ID_PILL_BINDINGS, &format!("{} bindings", cfg.hotkeys.len()));
-    child(parent, "EDIT", "", 32, 494, 636, 158, ML, ID_HOTKEYS, false);
+    child(parent, "EDIT", "", 32, 528, 636, 120, ML, ID_HOTKEYS, false);
 
     // ---- bottom bar -----------------------------------------------------------
     child(parent, "BUTTON", "", 20, 678, 128, 30, BTN, ID_SAVE_APPLY, false);

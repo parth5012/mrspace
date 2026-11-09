@@ -28,3 +28,9 @@
 - Small UI elements: SS_OWNERDRAW pills — top-right "● daemon running/offline" (probes daemon via try_send_command at open) and Hotkeys "{n} bindings" count chip; app title "Mr. Space — Settings" painted in main WM_PAINT; WM_CTLCOLORSTATIC/WM_CTLCOLORBTN split so labels and the native checkbox erase with the card color (LBLCARD_BASE id range).
 - Card data passed via SetPropW/GetPropW (boxed CardData, freed in WM_DESTROY).
 - Verified: build clean, full-window screenshot at design geometry (cards, pills, distinct exclusion glyphs all render), Save + Save & Apply smoke (config written, deduped "daemon reloaded" reply), single-instance raise. Flow plugin exe copy refreshed.
+
+## 2026-11-09 — Settings inspo pass (browser/CDN research)
+- Status: Done
+- Research route: builtin websearch 402; no Tavily/Firecrawl MCP configured; desktop browser disconnected — used DuckDuckGo html endpoint + webfetch/curl + Muzli embeds + Pinterest pin CDN to pull real reference screenshots (Untitled UI settings page; Muzli dark gallery).
+- Applied: in-content page header "Settings" + muted helper line (WM_PAINT), quiet "…" affordance on every card, Untitled-UI hairline separator under the Hotkeys card header (Basics/Borders too tight for it — skipped deliberately), cards shifted +18px for the header, hotkeys edit re-gapped.
+- Verified: build clean, full screenshot (header, dots, separator render correctly, no clipping), Save smoke OK, Flow plugin exe copy refreshed.
