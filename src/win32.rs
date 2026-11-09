@@ -2,8 +2,9 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
-    GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, MoveWindow, SetForegroundWindow,
-    SetWindowPos, ShowWindow, SW_RESTORE, SW_SHOW, SWP_NOZORDER, SWP_SHOWWINDOW, GWL_EXSTYLE,
+    GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow, SetWindowPos, ShowWindow,
+    SendMessageTimeoutW, SMTO_ABORTIFHUNG, SMTO_BLOCK, WM_GETTEXT, SW_RESTORE, SW_SHOW,
+    SWP_NOZORDER, SWP_SHOWWINDOW, SWP_ASYNCWINDOWPOS, GWL_EXSTYLE,
     GWL_STYLE, WS_CAPTION, WS_EX_TOOLWINDOW,
 };
 use std::ffi::OsString;
@@ -27,9 +28,29 @@ unsafe extern "system" fn enum_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
 
 pub fn window_title(hwnd: HWND) -> String {
     let mut buf = [0u16; 512];
-    let n = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
-    if n <= 0 { return String::new(); }
-    OsString::from_wide(&buf[..n as usize]).to_string_lossy().to_string()
+    // GetWindowTextW SENDS WM_GETTEXT for cross-process windows, which blocks
+    // forever on a suspended/UWP window thread (notepad suspends in seconds)
+    // and hung the daemon. SendMessageTimeoutW with ABORTIFHUNG never wedges.
+    unsafe {
+        let mut res: usize = 0;
+        let sent = SendMessageTimeoutW(
+            hwnd,
+            WM_GETTEXT,
+            buf.len() as usize,
+            buf.as_mut_ptr() as LPARAM,
+            SMTO_ABORTIFHUNG | SMTO_BLOCK,
+            300,
+            &mut res,
+        );
+        if sent == 0 || res == 0 {
+            return String::new();
+        }
+        let n = (res as usize).min(buf.len());
+        if n == 0 {
+            return String::new();
+        }
+        OsString::from_wide(&buf[..n]).to_string_lossy().to_string()
+    }
 }
 
 pub fn window_rect(hwnd: HWND) -> Option<RECT> {
@@ -61,8 +82,18 @@ pub fn show(hwnd: HWND) {
 
 pub fn move_resize(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {
     unsafe {
-        MoveWindow(hwnd, x, y, w, h, 1);
-        let _ = SetWindowPos(hwnd, std::ptr::null_mut(), x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW);
+        // ASYNCWINDOWPOS: post the change instead of SendMessage-waiting on the
+        // target window's thread — a hung/destroying window can otherwise block
+        // our caller forever during auto-tile bursts (kills the IPC daemon).
+        let _ = SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            x,
+            y,
+            w,
+            h,
+            SWP_NOZORDER | SWP_SHOWWINDOW | SWP_ASYNCWINDOWPOS,
+        );
     }
 }
 

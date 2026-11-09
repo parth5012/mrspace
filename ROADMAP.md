@@ -1,0 +1,125 @@
+# Mr. Space — Feature Roadmap
+
+Grounded against komorebi (README surveyed 2026-11), GlazeWM v3 (README surveyed 2026-11),
+Workspacer, bug.n and PowerToys FancyZones. RAM is the design constraint: every feature
+must pay for itself in wakeups, not cost too much in memory.
+
+## Baseline (where we are)
+
+- 9 on-demand layouts (grid, columns-2/3, rows-2, main-left/right/top/bottom, focus) + cycle
+- Pin-tiling with count-diff re-tile (1 s poller), focus walking, chord resize-mode
+- Virtual-desktop nav (next/prev/move), border overlays (accent/muted), exclusions
+- Win-key chord engine, palette, settings GUI, TCP IPC (port 17331), Flow Launcher plugin
+- Footprint: **~16 MB daemon** (+20 MB while the settings app is open)
+
+| Capability | Mr. Space | komorebi | GlazeWM v3 | FancyZones |
+|---|---|---|---|---|
+| Tiling model | re-pin on count change | event-driven tree | i3-style tree | static zones |
+| Window rules (launch → float/ignore/assign) | — | ✔ | ✔ | — |
+| Float / fullscreen / minimized states | — | ✔ | ✔ | — |
+| Per-workspace layout memory | — | ✔ | ✔ | n/a |
+| Gaps inner/outer | — | ✔ | ✔ | ✔ |
+| Focus follows mouse | — | ✔ | ✔ | — |
+| Scratchpad (summon/park) | — | ✔ | — | — |
+| Border overlays | ✔ | ✔ | ✔ (Win11) | — |
+| Win-key chords | ✔ native | external (whkd) | external | — |
+| Built-in palette | ✔ | — | — | — |
+| Settings GUI | ✔ | YAML+CLI | YAML+CLI | partial |
+| Event subscriptions for bar widgets | — | ✔ pipes/UDS | ✔ CLI | — |
+| RAM | **~16 MB** | ~30–60 MB | ~50–100 MB | heavy runtime |
+
+## Hard rules (RAM guardrails)
+
+1. No idle polling for anything — event-driven only.
+2. State = flat Vec of window records per workspace (hwnd, class, rect, state). No serde
+   tree per event, no per-window caches beyond what is *managed* (<5 KB typical).
+3. No animations, no scripting runtime, no bundled bar. Bar-style integrations consume
+   our IPC events *externally* (komorebi's model).
+4. One process stays cheap: `mrspace.exe` keeps single-digit-MB private memory as the
+   feature set grows; the settings app is the only fat process and only lives on demand.
+
+## Tier 1 — event-driven core
+
+### 1. SetWinEventHook re-tile engine *(status: done — 2026-11-10)*
+Replace the 1 s polling thread in `tiling.rs` with `SetWinEventHook`
+(`EVENT_OBJECT_CREATE/DESTROY/SHOW/HIDE`, `EVENT_SYSTEM_MINIMIZESTART/END`,
+`EVENT_OBJECT_CLOAKED/UNCLOAKED`, `WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS`). Hook
+thread pumps a `GetMessageW`+`DispatchMessageW` loop; events flip a `DIRTY` flag and
+signal an auto-reset event that a re-tiler thread waits on (`WaitForSingleObject`,
+zero idle wakeups) with a 150 ms debounce.
+**Bugs found and fixed while landing this (both would hang the daemon):**
+- `GetWindowTextW` *sends* `WM_GETTEXT` cross-process — a suspended UWP/notepad window
+  thread blocks it forever → replaced with `SendMessageTimeoutW(WM_GETTEXT,
+  SMTO_ABORTIFHUNG|SMTO_BLOCK, 300ms)` in `win32::window_title`.
+- `SetWindowPos`/`MoveWindow` wait synchronously on the target window's thread during
+  window destroy bursts → `SWP_ASYNCWINDOWPOS` in `win32::move_resize`.
+- Acceptance (verified): opening notepad auto-tiles it into a grid cell within ~2 s,
+  closing re-tiles the remainder, no perceived lag; traced wake/debounce/count cycle in
+  `/tmp/h.log` (MRS_TRACE); idle CPU delta ≈ 0 for 2 s; daemon RAM ~32 MB working set
+  while tiling is ON; tiling toggled back OFF after the soak.
+
+### 2. Workspace-scoped layout memory
+Store the chosen layout + pinned set + per-window pins per virtual desktop; switching
+desktops restores the layout (anchored to workarea, not archived pixels). Basis:
+`virtual_desktop.rs` + the hook above.
+- Acceptance: layout A on desktop 1, layout B on desktop 2, switching restores each in
+  ≤ 1 frame; memory: one small Vec per desktop, capped.
+
+### 3. Managed-window record + state commands
+Thin Rust record per managed window (hwnd, exe/class, state ∈ tiled/floating). New
+chords: swap with next window, promote, toggle float (floating windows are excluded from
+tiling and left where the user put them).
+- Acceptance: float toggle round-trips a window's sequence unmodified when returning
+  to tiled; swap/promote reflect the flow in ≤1 frame.
+
+## Tier 2 — switch-tools
+
+### 4. Window rules engine *(config: `name|modifiers|vk|action` layer stays as-is)*
+Match `title substring | class | exe name` per window → `float`, `ignore` (extends the
+exclusion cards we have), `no-manage`. Evaluated once, inside the window-create path of
+the hook. komorebi/GlazeWM issue-trackers' #1 feature; cheap for us.
+- Acceptance: rules apply on launch (not only on next re-tile); settings GUI can manage.
+
+### 5. Scratchpad (summon/park)
+`Win+Space`-adjacent chord: park the focused window offscreen (restorable without
+losing z-order semantics), summon any parked window. Needs only the window record
+from item 3 + `SetWindowPos`.
+- Acceptance: parked window invisible with no taskbar flash; summon restores exact
+  geometry; parked set survives daemon restart via config on demand (optional flag).
+
+### 6. Gaps inner/outer
+`fit_all()` arithmetic resourced from config: `gap_inner`, `gap_outer` px. Settings GUI
+fields in Basics.
+- Acceptance: visible at all 9 layouts; ≤0 results clamp to 0; parse errors fall back
+  to zero.
+
+### 7. Focus niceties
+`focus_follows_mouse` (option in Basics) + `toggle-back-previous-desktop` (i3
+back-and-forth). Both O(1) and hook-cheap.
+- Acceptance: no focus lag loop when the pointer crosses a tiled window boundary;
+  previous-desktop toggle works even when the previous desktop has no windows.
+
+## Tier 3 — polish without bloat
+
+### 8. `state --json` + event subscriptions (IPC)
+`mrspace.exe state --json` (flat state snapshot) + `mrspace.exe subscribe --port N`
+(newline-delimited JSON event stream over the existing TCP IPC). Lets bar integrations exist
+*outside* the process — komorebi/YASB model, ~zero RAM cost for us.
+- Acceptance: state JSON ≤ 2 KB for 10 managed windows; subscription survives a
+  client reconnect; no new threads per subscriber beyond the socket read.
+
+### 9. Layout-change preview overlay
+FancyZones' best idea, implemented with our border-overlay machinery (`borders.rs`):
+show the destination layout as outlined regions for ~800 ms after layout-cycle
+before committing. Acceptance: overlay never traps focus; excluded when tiling is off.
+
+### 10. Binding modes
+Generalize the resize chord into named modes (resize / move / mono) reusing
+`hook.rs` action-key dispatch; `Esc` exits to the base chord set like today.
+- Acceptance: no new global listener per mode; the chord→mode map is data, not code
+  per mode (add a mode = add a table row).
+
+## Non-goals
+- Per-window animations or transparency effects (frame churn, battery).
+- Shipping a status bar; selling one integrable state stream (item 8).
+- A general plugin/runtime (Lua/AHK/JS) — IPC + config covers the same need.
