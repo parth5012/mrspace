@@ -8,6 +8,7 @@ mod hotkeys;
 mod hook;
 mod layout;
 mod layouts;
+mod managed;
 mod palette;
 mod resize;
 mod settings;
@@ -61,6 +62,12 @@ enum Commands {
     Layout { name: String },
     /// Cycle through layouts.
     LayoutCycle,
+    /// Toggle floating state of the foreground window.
+    ToggleFloat,
+    /// Swap the foreground window with the next manageable window.
+    SwapNext,
+    /// Promote the foreground window to the main slot.
+    Promote,
     /// Focus window to the left (geometric).
     FocusLeft,
     FocusDown,
@@ -146,6 +153,9 @@ fn main() {
         Some(Commands::ToggleTiling) => run_or_direct(p, "toggle-tiling", || { let _ = tiling::toggle(); }),
         Some(Commands::Layout { name }) => run_or_direct(p, &format!("layout {name}"), || { let _ = layouts::apply(&name); }),
         Some(Commands::LayoutCycle) => run_or_direct(p, "layout-cycle", || { layouts::cycle(); }),
+        Some(Commands::ToggleFloat) => run_or_direct(p, "toggle-float", || { let h = win32::foreground(); if !h.is_null() { managed::toggle_float(h as isize); } }),
+        Some(Commands::SwapNext) => run_or_direct(p, "swap-next", || { let h = win32::foreground(); if !h.is_null() { layout::swap_next(h); } }),
+        Some(Commands::Promote) => run_or_direct(p, "promote", || { let h = win32::foreground(); if !h.is_null() { layout::promote(h); } }),
         Some(Commands::FocusLeft) => run_or_direct(p, "focus-left", || focus::focus_direction("left")),
         Some(Commands::FocusDown) => run_or_direct(p, "focus-down", || focus::focus_direction("down")),
         Some(Commands::FocusUp) => run_or_direct(p, "focus-up", || focus::focus_direction("up")),

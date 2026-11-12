@@ -142,6 +142,8 @@ pub fn primary_work_area() -> RECT {
 
 pub fn is_manageable(hwnd: HWND) -> bool {
     if hwnd.is_null() { return false; }
+    // Floating windows are user-placed: excluded from tiling/counting/borders.
+    if crate::managed::is_floating(hwnd as isize) { return false; }
     // Cloaked windows live on other virtual desktops (or are suspended UWP):
     // they must never be tiled or counted — DWM does the check, no cross-process
     // message sent, so it cannot hang the way WM_GETTEXT can.

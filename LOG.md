@@ -63,6 +63,20 @@
 - Overlay row editor: removed WS_TABSTOP (Tab could land on the parked offscreen invisible EDIT — invisible-focus-trap bug); Enter=commit / Esc=cancel handled at the pump level before IsDialogMessageW (VK_RETURN/VK_ESCAPE from KeyboardAndMouse module; overlay_commit reads via GetDlgItemTextW so no focus dependency).
 - Verified: build clean, hover probe (real cursor onto button GetWindowRect center + screen capture: ＋ Add renders lit CLR_ICON_TILE fill cold-render stays dim), Save smoke → "daemon reloaded (port 17331)", full screenshot (hint row + swatches + dark controls all render), Flow plugin exe refreshed, komorebi ignore-rule re-applied after restart (EXIT=0) at 1074×1106 geometry.
 
+## 2026-11-12 — Tier 1.3: managed-window record + state commands
+- Status: Done
+- New module `managed.rs`: `FLOATING: Mutex<HashSet<isize>>`; `is_floating`, `toggle_float`,
+  `clear`. `toggle_float` flips the flag and re-tiles + syncs borders.
+- `win32::is_manageable` returns false for floating windows — excluded from tiling,
+  counting, borders (left where the user put them).
+- `layout::swap_next(hwnd)`: swaps rects of focused + next manageable window in z-order.
+- `layout::promote(hwnd)`: re-tiles the whole set with focused window in slot 0.
+- IPC + CLI + default hotkeys: toggle-float (F), swap-next (S), promote (A); wired in
+  hook.rs `is_action_key` + `execute`.
+- Float toggle round-trips: float -> window leaves tiling set; un-float -> re-joins via
+  fit_all.
+- Acceptance: toggle-float IPC round-trips OK; build clean.
+
 ## 2026-11-12 — Tier 1.2: workspace-scoped layout memory
 - Status: Done
 - New module `workspace.rs`: flat Vec<(GUID, DeskState)> capped at 8 (FIFO eviction);

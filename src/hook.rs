@@ -110,7 +110,7 @@ fn is_action_key(vk: u32) -> bool {
         0x25..=0x28          // arrows
         | 0x20               // Space (palette)
         | 0xBB | 0xBD        // +/= and -/_
-        | 0x4D | 0x47 | 0x4F | 0x54 | 0x48 | 0x4A | 0x4B | 0x4C | 0x52 | 0x4E | 0x50
+        | 0x4D | 0x47 | 0x4F | 0x54 | 0x48 | 0x4A | 0x4B | 0x4C | 0x52 | 0x4E | 0x50 | 0x46 | 0x53 | 0x41
         | 0x31..=0x39        // 1–9 desktop numbers
         | 0x1B               // Esc (resize-mode exit)
     )
@@ -125,6 +125,9 @@ fn execute(vk: u32) {
         0x4D /*M*/ => "maximize",
         0x47 /*G*/ => "fit-all",
         0x4F /*O*/ => "layout-cycle",
+        0x46 /*F*/ => "toggle-float",
+        0x53 /*S*/ => "swap-next",
+        0x41 /*A*/ => "promote",
         0x54 /*T*/ => "toggle-tiling",
         0x48 /*H*/ => "focus-left",
         0x4A /*J*/ => "focus-down",

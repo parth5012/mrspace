@@ -191,6 +191,9 @@ fn dispatch(cmd: &str) -> String {
             "OK".into()
         }
         "layout-cycle" => { let n = crate::layouts::cycle(); format!("layout {n}") }
+        "toggle-float" => { let h = win32::foreground(); if !h.is_null() { crate::managed::toggle_float(h as isize); } "OK".into() }
+        "swap-next" => { let h = win32::foreground(); if !h.is_null() { layout::swap_next(h); } "OK".into() }
+        "promote" => { let h = win32::foreground(); if !h.is_null() { layout::promote(h); } "OK".into() }
         other => format!("ERR unknown command: {other}"),
     }
 }
@@ -223,6 +226,9 @@ pub fn execute_action(action: &str) {
         "palette" => crate::daemon::spawn_palette_process(),
         "toggle-tiling" => { let _ = crate::tiling::toggle(); },
         "layout-cycle" => { crate::layouts::cycle(); },
+        "toggle-float" => { let h = win32::foreground(); if !h.is_null() { crate::managed::toggle_float(h as isize); } },
+        "swap-next" => { let h = win32::foreground(); if !h.is_null() { layout::swap_next(h); } },
+        "promote" => { let h = win32::foreground(); if !h.is_null() { layout::promote(h); } },
         _ => {}
     }
 }
