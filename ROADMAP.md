@@ -119,7 +119,14 @@ zero idle wakeups) with a 150 ms debounce.
 - Config: `focus_follows_mouse: bool` (default false).
 - Acceptance: build clean.
 
-### 8. `state --json` + event subscriptions (IPC) + event subscriptions (IPC)
+### 8. `state --json` + event subscriptions (IPC) *(status: partial - 2026-11-12)*
+- `state` IPC command + CLI `State`: flat JSON snapshot of managed windows
+  (hwnd, pid, title, class, exe, x, y, w, h, floating). ~200 bytes/window.
+- `subscribe --port N` (live event stream) deferred - requires subscriber socket
+  registry in the daemon; state polling covers the snapshot need.
+- Acceptance: `mrspace state` returns valid JSON; build clean.
+
+### 9. Layout-change preview overlay + event subscriptions (IPC)
 `mrspace.exe state --json` (flat state snapshot) + `mrspace.exe subscribe --port N`
 (newline-delimited JSON event stream over the existing TCP IPC). Lets bar integrations exist
 *outside* the process â komorebi/YASB model, ~zero RAM cost for us.

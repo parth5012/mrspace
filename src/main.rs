@@ -57,8 +57,10 @@ enum Commands {
     SendTo { desktop: String },
     /// Show settings window.
     Settings,
-    /// Open command palette.
+    /// Show command palette (alias).
     Palette,
+    /// Print daemon state as JSON.
+    State,
     /// Toggle automatic tiling mode.
     ToggleTiling,
     /// Apply a named layout (grid, columns-2, main-left, ...).
@@ -157,6 +159,7 @@ fn main() {
         }
         Some(Commands::Settings) => run_or_direct(p, "settings", || settings::show()),
         Some(Commands::Palette) => run_or_direct(p, "palette", || palette::show()),
+        Some(Commands::State) => run_or_direct(p, "state", || {}),
         Some(Commands::ToggleTiling) => run_or_direct(p, "toggle-tiling", || { let _ = tiling::toggle(); }),
         Some(Commands::Layout { name }) => run_or_direct(p, &format!("layout {name}"), || { let _ = layouts::apply(&name); }),
         Some(Commands::LayoutCycle) => run_or_direct(p, "layout-cycle", || { layouts::cycle(); }),

@@ -197,6 +197,28 @@ fn dispatch(cmd: &str) -> String {
         "promote" => { let h = win32::foreground(); if !h.is_null() { layout::promote(h); } "OK".into() }
         "park" => { let h = win32::foreground(); if !h.is_null() { crate::scratchpad::park(h); } "OK".into() }
         "summon" => { if crate::scratchpad::summon() { "OK".into() } else { "ERR no parked windows".into() } }
+        "state" => {
+            // flat JSON snapshot of managed windows
+            let mut out = String::from("{\"windows\":[");
+            let mut first = true;
+            for h in win32::enum_windows() {
+                if !win32::is_manageable(h) { continue; }
+                let title = win32::window_title(h).replace('"', "\\\"");
+                let class = win32::class_name(h).replace('"', "\\\"");
+                let exe = win32::process_name(h).replace('"', "\\\"");
+                let r = win32::window_rect(h);
+                let (x,y,w,ht) = match r { Some(r) => (r.left, r.top, r.right-r.left, r.bottom-r.top), None => (0,0,0,0) };
+                if !first { out.push(','); }
+                first = false;
+                out.push_str(&format!(
+                    "{{\"hwnd\":{},\"pid\":{},\"title\":\"{}\",\"class\":\"{}\",\"exe\":\"{}\",\"x\":{},\"y\":{},\"w\":{},\"h\":{},\"floating\":{}}}",
+                    h as usize, win32::process_id(h), title, class, exe, x, y, w, ht,
+                    crate::managed::is_floating(h as isize)
+                ));
+            }
+            out.push_str("]}");
+            out
+        }
         "park" => { let h = win32::foreground(); if !h.is_null() { crate::scratchpad::park(h); } "OK".into() }
         "summon" => { if crate::scratchpad::summon() { "OK".into() } else { "ERR no parked windows".into() } }
         other => format!("ERR unknown command: {other}"),
