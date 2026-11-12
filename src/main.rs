@@ -10,6 +10,7 @@ mod layout;
 mod layouts;
 mod managed;
 mod rules;
+mod scratchpad;
 mod palette;
 mod resize;
 mod settings;
@@ -69,6 +70,10 @@ enum Commands {
     SwapNext,
     /// Promote the foreground window to the main slot.
     Promote,
+    /// Park the foreground window offscreen (scratchpad).
+    Park,
+    /// Summon the last parked window.
+    Summon,
     /// Focus window to the left (geometric).
     FocusLeft,
     FocusDown,
@@ -157,6 +162,8 @@ fn main() {
         Some(Commands::ToggleFloat) => run_or_direct(p, "toggle-float", || { let h = win32::foreground(); if !h.is_null() { managed::toggle_float(h as isize); } }),
         Some(Commands::SwapNext) => run_or_direct(p, "swap-next", || { let h = win32::foreground(); if !h.is_null() { layout::swap_next(h); } }),
         Some(Commands::Promote) => run_or_direct(p, "promote", || { let h = win32::foreground(); if !h.is_null() { layout::promote(h); } }),
+        Some(Commands::Park) => run_or_direct(p, "park", || { let h = win32::foreground(); if !h.is_null() { scratchpad::park(h); } }),
+        Some(Commands::Summon) => run_or_direct(p, "summon", || { scratchpad::summon(); }),
         Some(Commands::FocusLeft) => run_or_direct(p, "focus-left", || focus::focus_direction("left")),
         Some(Commands::FocusDown) => run_or_direct(p, "focus-down", || focus::focus_direction("down")),
         Some(Commands::FocusUp) => run_or_direct(p, "focus-up", || focus::focus_direction("up")),

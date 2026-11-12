@@ -194,6 +194,10 @@ fn dispatch(cmd: &str) -> String {
         "toggle-float" => { let h = win32::foreground(); if !h.is_null() { crate::managed::toggle_float(h as isize); } "OK".into() }
         "swap-next" => { let h = win32::foreground(); if !h.is_null() { layout::swap_next(h); } "OK".into() }
         "promote" => { let h = win32::foreground(); if !h.is_null() { layout::promote(h); } "OK".into() }
+        "park" => { let h = win32::foreground(); if !h.is_null() { crate::scratchpad::park(h); } "OK".into() }
+        "summon" => { if crate::scratchpad::summon() { "OK".into() } else { "ERR no parked windows".into() } }
+        "park" => { let h = win32::foreground(); if !h.is_null() { crate::scratchpad::park(h); } "OK".into() }
+        "summon" => { if crate::scratchpad::summon() { "OK".into() } else { "ERR no parked windows".into() } }
         other => format!("ERR unknown command: {other}"),
     }
 }

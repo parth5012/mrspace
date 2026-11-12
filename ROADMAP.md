@@ -89,25 +89,20 @@ zero idle wakeups) with a 150 ms debounce.
   fit_all.
 - Acceptance: toggle-float IPC round-trips OK; build clean.
 
-### 4. Window rules engine *(status: done - 2026-11-12)*
-- `rules.rs` (new): `WindowRule { match_title, match_class, match_exe, action }` config type; `matches`, `action_for`, `is_ignored`, `apply_float_rules`. At least one criterion must be set; case-insensitive substring match.
-- `win32::is_manageable` consults `rules::is_ignored` (ignore / no-manage -> not manageable).
-- Re-tiler calls `rules::apply_float_rules` for every window before counting (float rules mark floating without re-tiling).
-- Config: `window_rules: Vec<WindowRule>` (default empty); settings.rs initializer updated.
+### 4. Window rules engine (status: done - 2026-11-12)
+- `rules.rs` (new): `WindowRule { match_title, match_class, match_exe, action }` with
+  case-insensitive substring matching; `is_ignored`, `apply_float_rules`.
+- `win32::is_manageable` consults `rules::is_ignored` (ignore / no-manage).
+- Re-tiler applies float rules to every window before counting.
+- Config: `window_rules: Vec<WindowRule>` (default empty); settings.rs updated.
 - Acceptance: build clean; rules evaluated in re-tiler (not hook callback).
 
-### 5. Scratchpad (summon/park)
-Match `title substring | class | exe name` per window â `float`, `ignore` (extends the
-exclusion cards we have), `no-manage`. Evaluated once, inside the window-create path of
-the hook. komorebi/GlazeWM issue-trackers' #1 feature; cheap for us.
-- Acceptance: rules apply on launch (not only on next re-tile); settings GUI can manage.
-
-### 5. Scratchpad (summon/park)
-`Win+Space`-adjacent chord: park the focused window offscreen (restorable without
-losing z-order semantics), summon any parked window. Needs only the window record
-from item 3 + `SetWindowPos`.
-- Acceptance: parked window invisible with no taskbar flash; summon restores exact
-  geometry; parked set survives daemon restart via config on demand (optional flag).
+### 5. Scratchpad (summon/park) (status: done - 2026-11-12)
+- `scratchpad.rs` (new): `PARKED: Vec<isize>`, `SAVED: HashMap<isize, RECT>`.
+  `park(hwnd)`: save rect, mark floating, move offscreen (-32000,-32000),
+  hide via SWP_HIDEWINDOW (no taskbar flash), re-tile.
+  `summon()`: pop last parked, restore rect + show, un-float, re-tile.
+- IPC + CLI: park, summon. Acceptance: both round-trip OK; build clean.
 
 ### 6. Gaps inner/outer
 `fit_all()` arithmetic resourced from config: `gap_inner`, `gap_outer` px. Settings GUI
