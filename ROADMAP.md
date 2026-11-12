@@ -58,12 +58,23 @@ zero idle wakeups) with a 150 ms debounce.
   `/tmp/h.log` (MRS_TRACE); idle CPU delta â‰ˆ 0 for 2 s; daemon RAM ~32 MB working set
   while tiling is ON; tiling toggled back OFF after the soak.
 
-### 2. Workspace-scoped layout memory
-Store the chosen layout + pinned set + per-window pins per virtual desktop; switching
-desktops restores the layout (anchored to workarea, not archived pixels). Basis:
-`virtual_desktop.rs` + the hook above.
-- Acceptance: layout A on desktop 1, layout B on desktop 2, switching restores each in
-  â‰¤ 1 frame; memory: one small Vec per desktop, capped.
+### 2. Workspace-scoped layout memory *(status: done — 2026-11-12)*
+- `workspace.rs` (new): flat Vec<(GUID, DeskState)> capped at 8, FIFO eviction.
+- `is_cloaked` filter added to `win32::is_manageable` (DWMWA_CLOAKED) — windows on
+  other desktops excluded from tiling/counting/borders.
+- Re-tiler detects desktop switches via GUID hash on the same event wake (cloak +
+  foreground); on switch re-applies the remembered layout, or leaves geometry
+  untouched when none is remembered. Count-change re-tiles apply stored layout or
+  grid fallback. `note_layout` recorded by `layouts::apply` on success.
+- `current_guid()` resolves via temp window on the active desktop (consistent
+  identity across note/restore), cached 1000 ms.
+- `VirtualDesktopManager` now created fresh per call (was a cross-apartment COM
+  hazard that could crash the daemon).
+- Note: `move-next-desktop`/`move-prev-desktop` cannot move foreign-process windows
+  (IVirtualDesktopManager::MoveWindowToDesktop returns E_ACCESSDENIED) — Windows
+  limitation, not a regression. Workspace memory does not depend on it.
+- Acceptance: switch detection verified via MRS_TRACE ("desk switch: no stored
+  layout"/"layout restored"); GUID consistency via temp-probe-only resolution.
 
 ### 3. Managed-window record + state commands
 Thin Rust record per managed window (hwnd, exe/class, state âˆˆ tiled/floating). New

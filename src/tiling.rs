@@ -11,8 +11,8 @@ use windows_sys::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook, WINE
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EVENT_OBJECT_CLOAKED, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE,
     EVENT_OBJECT_SHOW, EVENT_OBJECT_UNCLOAKED, EVENT_SYSTEM_MINIMIZEEND,
-    EVENT_SYSTEM_MINIMIZESTART, GetMessageW, MSG, OBJID_WINDOW, WINEVENT_OUTOFCONTEXT,
-    WINEVENT_SKIPOWNPROCESS, DispatchMessageW,
+    EVENT_SYSTEM_MINIMIZESTART, DispatchMessageW, GetMessageW, MSG, OBJID_WINDOW,
+    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, EVENT_SYSTEM_FOREGROUND,
 };
 
 // TEMP debug tracing, gated by MRS_TRACE=path (removed once the hook engine
@@ -45,7 +45,7 @@ static WAKE: AtomicU64 = AtomicU64::new(0);
 
 // a window-level event that can change the *set* of manageable windows.
 // LOCATIONCHANGE is deliberately not hooked: dragging/resizing must not re-tile.
-const INTERESTING: [u32; 8] = [
+const INTERESTING: [u32; 9] = [
     EVENT_OBJECT_CREATE,
     EVENT_OBJECT_DESTROY,
     EVENT_OBJECT_SHOW,
@@ -54,6 +54,7 @@ const INTERESTING: [u32; 8] = [
     EVENT_SYSTEM_MINIMIZEEND,
     EVENT_OBJECT_CLOAKED,
     EVENT_OBJECT_UNCLOAKED,
+    EVENT_SYSTEM_FOREGROUND,
 ];
 
 unsafe extern "system" fn hook_proc(
@@ -103,6 +104,9 @@ pub fn init() {
             hook_log(SetWinEventHook(0x8000, 0x8003, std::ptr::null_mut(), proc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS), 0x8000, 0x8003);
             hook_log(SetWinEventHook(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, std::ptr::null_mut(), proc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS), EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND);
             hook_log(SetWinEventHook(EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED, std::ptr::null_mut(), proc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS), EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED);
+            // foreground changes give the re-tiler a pulse even when the new
+            // desktop has no windows (cloak events alone miss those switches)
+            hook_log(SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, std::ptr::null_mut(), proc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS), EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND);
             let mut msg: MSG = std::mem::zeroed();
             loop {
                 let r = GetMessageW(&mut msg, 0 as _, 0, 0);
@@ -133,14 +137,29 @@ pub fn init() {
                 DIRTY.store(false, Ordering::Relaxed);
                 if !ACTIVE.load(Ordering::Relaxed) {
                     LAST_COUNT.store(0, Ordering::Relaxed);
+                    crate::workspace::clear_last_desk();
                     continue;
                 }
+                // workspace switch detection rides the same event wake — cloak
+                // events fire for every window leaving/entering a desktop
+                let switched = crate::workspace::on_retile_tick();
                 let count = manageable_count();
                 let last = LAST_COUNT.load(Ordering::Relaxed);
+                if switched {
+                    LAST_COUNT.store(count, Ordering::Relaxed);
+                    // restore the remembered layout for this desktop; none
+                    // remembered → leave existing geometry untouched
+                    if crate::workspace::restore_layout_for_current() {
+                        trace("desk switch: layout restored");
+                    } else {
+                        trace("desk switch: no stored layout");
+                    }
+                    continue;
+                }
                 let changed = count != last;
                 trace(&format!("count={} last={} retile={}", count, last, changed));
                 if changed {
-                    crate::layout::fit_all();
+                    crate::workspace::retile_current();
                     LAST_COUNT.store(count, Ordering::Relaxed);
                 }
             }

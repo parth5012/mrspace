@@ -58,6 +58,22 @@ pub fn window_rect(hwnd: HWND) -> Option<RECT> {
     if unsafe { GetWindowRect(hwnd, &mut r) } != 0 { Some(r) } else { None }
 }
 
+/// True when the window is cloaked by DWM — i.e. it lives on another virtual
+/// desktop or is a suspended UWP frame. Cheap, in-proc, never cross-process.
+pub fn is_cloaked(hwnd: HWND) -> bool {
+    use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    let mut val: u32 = 0;
+    unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED as u32,
+            &mut val as *mut u32 as *mut _,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+    val != 0
+}
+
 pub fn process_id(hwnd: HWND) -> u32 {
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, &mut pid); }
@@ -126,6 +142,10 @@ pub fn primary_work_area() -> RECT {
 
 pub fn is_manageable(hwnd: HWND) -> bool {
     if hwnd.is_null() { return false; }
+    // Cloaked windows live on other virtual desktops (or are suspended UWP):
+    // they must never be tiled or counted — DWM does the check, no cross-process
+    // message sent, so it cannot hang the way WM_GETTEXT can.
+    if is_cloaked(hwnd) { return false; }
     let title = window_title(hwnd);
     // skip empty-title windows and our own? keep simple
     if title.is_empty() { return false; }

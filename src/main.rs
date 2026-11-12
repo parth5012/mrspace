@@ -12,6 +12,7 @@ mod palette;
 mod resize;
 mod settings;
 mod tiling;
+mod workspace;
 mod virtual_desktop;
 mod win32;
 

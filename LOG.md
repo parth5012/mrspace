@@ -63,6 +63,27 @@
 - Overlay row editor: removed WS_TABSTOP (Tab could land on the parked offscreen invisible EDIT — invisible-focus-trap bug); Enter=commit / Esc=cancel handled at the pump level before IsDialogMessageW (VK_RETURN/VK_ESCAPE from KeyboardAndMouse module; overlay_commit reads via GetDlgItemTextW so no focus dependency).
 - Verified: build clean, hover probe (real cursor onto button GetWindowRect center + screen capture: ＋ Add renders lit CLR_ICON_TILE fill cold-render stays dim), Save smoke → "daemon reloaded (port 17331)", full screenshot (hint row + swatches + dark controls all render), Flow plugin exe refreshed, komorebi ignore-rule re-applied after restart (EXIT=0) at 1074×1106 geometry.
 
+## 2026-11-12 — Tier 1.2: workspace-scoped layout memory
+- Status: Done
+- New module `workspace.rs`: flat Vec<(GUID, DeskState)> capped at 8 (FIFO eviction);
+  `note_layout` recorded by `layouts::apply` on success; `on_retile_tick` detects
+  desktop switches via GUID hash on the same event wake; `restore_layout_for_current`
+  re-applies the remembered layout (or leaves geometry untouched); `retile_current`
+  applies stored layout or grid fallback on count change.
+- `is_cloaked` filter (DWMWA_CLOAKED) added to `win32::is_manageable` — windows on
+  other desktops excluded from tiling/counting/borders entirely.
+- `current_guid()` resolves via temp window on the active desktop (consistent
+  identity across note/restore), cached 1000 ms (300 ms switch-animation sleep).
+- `VirtualDesktopManager` now created fresh per call — the shared singleton was a
+  cross-apartment COM hazard that could crash the daemon (found during soak).
+- `move-next-desktop`/`move-prev-desktop` cannot move foreign-process windows
+  (IVirtualDesktopManager::MoveWindowToDesktop returns E_ACCESSDENIED) — Windows
+  limitation, not a regression; workspace memory does not depend on it.
+- `send_combo` now sends keys with 60 ms delays (Win-key combos dropped without).
+- Verified: switch detection fires ("desk switch: no stored layout"/"layout restored"
+  in MRS_TRACE); no daemon crash after the VDM fix; build clean.
+- Flow plugin exe refreshed.
+
 ## 2026-11-10 — Border overlay fixes (stale "middle line" + fullscreen corner marks)
 - Status: Done
 - Root cause 1 (middle line): tick() only redrew overlays when w/h/color changed — a window that moved without resizing left its ring at the old rect (the "line" was a stale ring edge). Root cause 2 (corner marks): maximized/fullscreen targets have GetWindowRect == or beyond the screen, so rings painted offscreen leaving corner fragments.

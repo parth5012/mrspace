@@ -1,6 +1,5 @@
 use crate::win32;
 use windows_sys::Win32::Foundation::HWND;
-
 const PRESETS: &[&str] = &[
     "grid", "columns-2", "columns-3", "rows-2",
     "main-left", "main-right", "main-top", "main-bottom", "focus",
@@ -36,6 +35,8 @@ pub fn apply(name: &str) -> bool {
     if ok {
         // presets re-tile the full window set — refresh the border ring set
         crate::borders::sync_all_managed();
+        // remember this choice for the desktop it was made on (restored on switch)
+        crate::workspace::note_layout(name);
     }
     ok
 }

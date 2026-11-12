@@ -11,13 +11,16 @@ const VK_RIGHT: u16 = 0x27;
 const VK_LEFT: u16 = 0x25;
 
 fn send_combo(keys: &[u16], release: bool) {
-    // keys: modifiers then final key; send down then up
-    let mut inputs: Vec<INPUT> = Vec::new();
+    // Send each key down with a small delay (Windows registers Win-key
+    // combos reliably only when the modifiers are held for a moment), then
+    // release in reverse. A single batched SendInput can be dropped by the
+    // shell when no delay is present.
     for &k in keys {
         let mut i: INPUT = unsafe { std::mem::zeroed() };
         i.r#type = INPUT_KEYBOARD;
         i.Anonymous.ki.wVk = k;
-        inputs.push(i);
+        unsafe { SendInput(1, &i as *const _ as *const INPUT, std::mem::size_of::<INPUT>() as i32); }
+        std::thread::sleep(std::time::Duration::from_millis(60));
     }
     if release {
         for &k in keys.iter().rev() {
@@ -25,10 +28,10 @@ fn send_combo(keys: &[u16], release: bool) {
             i.r#type = INPUT_KEYBOARD;
             i.Anonymous.ki.wVk = k;
             i.Anonymous.ki.dwFlags = KEYEVENTF_KEYUP;
-            inputs.push(i);
+            unsafe { SendInput(1, &i as *const _ as *const INPUT, std::mem::size_of::<INPUT>() as i32); }
+            std::thread::sleep(std::time::Duration::from_millis(60));
         }
     }
-    unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32); }
 }
 
 pub fn next_desktop_view() {
@@ -40,15 +43,16 @@ pub fn prev_desktop_view() {
     send_combo(&[VK_CONTROL, VK_LWIN, VK_LEFT], true);
 }
 
-fn create_temp_window() -> HWND {
+pub fn create_temp_window() -> HWND {
     unsafe {
         let cls: Vec<u16> = "MrspaceTemp\0".encode_utf16().collect();
         let mut wc: windows_sys::Win32::UI::WindowsAndMessaging::WNDCLASSW = std::mem::zeroed();
         wc.lpfnWndProc = Some(temp_proc);
         wc.lpszClassName = cls.as_ptr();
         windows_sys::Win32::UI::WindowsAndMessaging::RegisterClassW(&wc);
+        let title: Vec<u16> = "MrspaceTemp\0".encode_utf16().collect();
         let hwnd = windows_sys::Win32::UI::WindowsAndMessaging::CreateWindowExW(
-            0, cls.as_ptr(), std::ptr::null(),
+            0, cls.as_ptr(), title.as_ptr(),
             windows_sys::Win32::UI::WindowsAndMessaging::WS_OVERLAPPEDWINDOW,
             0, 0, 10, 10, 0 as HWND, 0 as _, 0 as _, std::ptr::null(),
         );
@@ -77,23 +81,18 @@ pub fn noop(_vk: u32) {}
 fn move_to_adjacent(next: bool) {
     let hwnd = win32::foreground();
     if hwnd.is_null() { return; }
-    // switch view
     if next { next_desktop_view(); } else { prev_desktop_view(); }
-    // wait for switch
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    // create temp window on new desktop to get its GUID
+    std::thread::sleep(std::time::Duration::from_millis(400));
     let temp = create_temp_window();
     if temp.is_null() { return; }
-    // show it (hidden is fine but needs to be on desktop)
     win32::show(temp);
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    std::thread::sleep(std::time::Duration::from_millis(500));
     let vdm = match VirtualDesktopManager::new() { Ok(v) => v, Err(_) => { destroy_window(temp); return; } };
     let guid = match vdm.current_desktop_id(temp) { Ok(g) => g, Err(_) => { destroy_window(temp); return; } };
-    // move foreground window
     let _ = vdm.move_to_desktop(hwnd, &guid);
     destroy_window(temp);
 }
 
-fn destroy_window(hwnd: HWND) {
+pub fn destroy_window(hwnd: HWND) {
     unsafe { windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow(hwnd); }
 }
