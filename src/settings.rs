@@ -1436,6 +1436,7 @@ unsafe fn collect_config(parent: HWND) -> Result<Config, String> {
         exclude_titles,
         exclude_classes,
         exclude_pids,
+        focus_follows_mouse: false,
         gap_inner: 0,
         gap_outer: 0,
         borders: crate::config::BorderSettings {

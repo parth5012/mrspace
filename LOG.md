@@ -63,6 +63,15 @@
 - Overlay row editor: removed WS_TABSTOP (Tab could land on the parked offscreen invisible EDIT — invisible-focus-trap bug); Enter=commit / Esc=cancel handled at the pump level before IsDialogMessageW (VK_RETURN/VK_ESCAPE from KeyboardAndMouse module; overlay_commit reads via GetDlgItemTextW so no focus dependency).
 - Verified: build clean, hover probe (real cursor onto button GetWindowRect center + screen capture: ＋ Add renders lit CLR_ICON_TILE fill cold-render stays dim), Save smoke → "daemon reloaded (port 17331)", full screenshot (hint row + swatches + dark controls all render), Flow plugin exe refreshed, komorebi ignore-rule re-applied after restart (EXIT=0) at 1074×1106 geometry.
 
+## 2026-11-12 — Tier 2.4: focus niceties (focus-follows-mouse)
+- Status: Partial
+- New module `mouse_focus.rs`: WH_MOUSE_LL hook, gated by `config.focus_follows_mouse`;
+  focuses the window under the cursor (if manageable) when it has settled
+  (>60 ms since last move). Near-zero cost when disabled.
+- `toggle-back-previous-desktop` deferred (needs IVirtualDesktopManagerInternal).
+- Config: `focus_follows_mouse: bool` (default false).
+- Acceptance: build clean.
+
 ## 2026-11-12 — Tier 2.3: gaps inner/outer
 - Status: Done
 - Config: `gap_inner`, `gap_outer` (default 0).

@@ -11,6 +11,7 @@ pub fn run(cfg: Config) {
     crate::hook::start();
     crate::borders::configure(&cfg.borders);
     crate::borders::start();
+    crate::mouse_focus::start();
     let port = cfg.ipc_port;
 
     // ipc server

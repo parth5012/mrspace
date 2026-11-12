@@ -59,6 +59,9 @@ pub struct Config {
     pub exclude_classes: Vec<String>,
     /// Process IDs to never manage.
     pub exclude_pids: Vec<u32>,
+    /// Focus follows mouse (optional).
+    #[serde(default)]
+    pub focus_follows_mouse: bool,
     /// Inner gap between tiled windows (px).
     #[serde(default)]
     pub gap_inner: i32,
@@ -116,6 +119,7 @@ impl Default for Config {
             ],
             exclude_classes: vec!["RainmeterMeterWindow".into()],
             exclude_pids: vec![],
+            focus_follows_mouse: false,
             gap_inner: 0,
             gap_outer: 0,
             borders: Default::default(),

@@ -9,6 +9,7 @@ mod hook;
 mod layout;
 mod layouts;
 mod managed;
+mod mouse_focus;
 mod rules;
 mod scratchpad;
 mod palette;

@@ -110,21 +110,16 @@ zero idle wakeups) with a 150 ms debounce.
   all apply outer (workarea inset) and inner (between tiles) gaps, clamped >= 0.
 - Acceptance: build clean.
 
-### 7. Focus niceties
-`fit_all()` arithmetic resourced from config: `gap_inner`, `gap_outer` px. Settings GUI
-fields in Basics.
-- Acceptance: visible at all 9 layouts; â¤0 results clamp to 0; parse errors fall back
-  to zero.
+### 7. Focus niceties (status: partial - 2026-11-12)
+- `mouse_focus.rs` (new): WH_MOUSE_LL hook, gated by `config.focus_follows_mouse`;
+  focuses the window under the cursor (if manageable) when it has settled
+  (>60 ms since last move). Near-zero cost when disabled.
+- `toggle-back-previous-desktop` (i3 back-and-forth) requires the undocumented
+  IVirtualDesktopManagerInternal and is deferred.
+- Config: `focus_follows_mouse: bool` (default false).
+- Acceptance: build clean.
 
-### 7. Focus niceties
-`focus_follows_mouse` (option in Basics) + `toggle-back-previous-desktop` (i3
-back-and-forth). Both O(1) and hook-cheap.
-- Acceptance: no focus lag loop when the pointer crosses a tiled window boundary;
-  previous-desktop toggle works even when the previous desktop has no windows.
-
-## Tier 3 â polish without bloat
-
-### 8. `state --json` + event subscriptions (IPC)
+### 8. `state --json` + event subscriptions (IPC) + event subscriptions (IPC)
 `mrspace.exe state --json` (flat state snapshot) + `mrspace.exe subscribe --port N`
 (newline-delimited JSON event stream over the existing TCP IPC). Lets bar integrations exist
 *outside* the process â komorebi/YASB model, ~zero RAM cost for us.
