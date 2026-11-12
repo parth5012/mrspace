@@ -46,7 +46,7 @@ fn set_active(v: bool) {
     }
 }
 
-fn touch() { LAST.store(now_ms(), Ordering::Relaxed); }
+pub fn touch() { LAST.store(now_ms(), Ordering::Relaxed); }
 
 pub fn nudge(dir: &str) {
     if !is_active() { return; }

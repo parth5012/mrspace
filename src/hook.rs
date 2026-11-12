@@ -110,13 +110,62 @@ fn is_action_key(vk: u32) -> bool {
         0x25..=0x28          // arrows
         | 0x20               // Space (palette)
         | 0xBB | 0xBD        // +/= and -/_
-        | 0x4D | 0x47 | 0x4F | 0x54 | 0x48 | 0x4A | 0x4B | 0x4C | 0x52 | 0x4E | 0x50 | 0x46 | 0x53 | 0x41
+        | 0x4D | 0x47 | 0x4F | 0x54 | 0x48 | 0x4A | 0x4B | 0x4C | 0x52 | 0x4E | 0x50 | 0x46 | 0x53 | 0x41 | 0x56
         | 0x31..=0x39        // 1–9 desktop numbers
         | 0x1B               // Esc (resize-mode exit)
     )
 }
 
+fn run_mode_action(act: &str) {
+    let step = crate::config::load().resize_step;
+    let h = crate::win32::foreground();
+    if h.is_null() { return; }
+    let r = match crate::win32::window_rect(h) { Some(r) => r, None => return };
+    match act {
+        "nudge-left" => {
+            crate::resize::touch();
+            crate::win32::move_resize(h, r.left - step, r.top, r.right - r.left, r.bottom - r.top);
+        }
+        "nudge-right" => {
+            crate::resize::touch();
+            crate::win32::move_resize(h, r.left + step, r.top, r.right - r.left, r.bottom - r.top);
+        }
+        "nudge-up" => {
+            crate::resize::touch();
+            crate::win32::move_resize(h, r.left, r.top - step, r.right - r.left, r.bottom - r.top);
+        }
+        "nudge-down" => {
+            crate::resize::touch();
+            crate::win32::move_resize(h, r.left, r.top + step, r.right - r.left, r.bottom - r.top);
+        }
+        "move-left" => {
+            crate::win32::move_resize(h, r.left - step, r.top, r.right - r.left, r.bottom - r.top);
+        }
+        "move-right" => {
+            crate::win32::move_resize(h, r.left + step, r.top, r.right - r.left, r.bottom - r.top);
+        }
+        "move-up" => {
+            crate::win32::move_resize(h, r.left, r.top - step, r.right - r.left, r.bottom - r.top);
+        }
+        "move-down" => {
+            crate::win32::move_resize(h, r.left, r.top + step, r.right - r.left, r.bottom - r.top);
+        }
+        _ => {}
+    }
+    crate::borders::note_window(h);
+}
+
 fn execute(vk: u32) {
+    // binding modes: Esc exits; mode-specific actions take precedence
+    let mode = crate::modes::current();
+    if mode != "base" && vk == VK_ESCAPE_U32 {
+        crate::modes::exit();
+        return;
+    }
+    if let Some(act) = crate::modes::action_for(&mode, vk) {
+        run_mode_action(act);
+        return;
+    }
     let action = match vk {
         VK_LEFT_U32 => "pin-left",
         VK_RIGHT_U32 => "pin-right",
@@ -134,6 +183,7 @@ fn execute(vk: u32) {
         0x4B /*K*/ => "focus-up",
         0x4C /*L*/ => "focus-right",
         0x52 /*R*/ => "resize-mode",
+        0x56 /*V*/ => "move-mode",
         0x4E /*N*/ => "next-desktop",
         0x50 /*P*/ => "prev-desktop",
         0xBB /*+/=*/ => "grow",
@@ -157,6 +207,8 @@ fn execute(vk: u32) {
         "pin-right" if rm => crate::resize::nudge("right"),
         "pin-top" if rm => crate::resize::nudge("up"),
         "pin-bottom" if rm => crate::resize::nudge("down"),
+        "resize-mode" => crate::resize::toggle(),
+        "move-mode" => crate::modes::enter("move"),
         _ => crate::daemon::execute_action(action),
     }
 }

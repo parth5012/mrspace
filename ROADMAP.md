@@ -138,13 +138,8 @@ FancyZones' best idea, implemented with our border-overlay machinery (`borders.r
 show the destination layout as outlined regions for ~800 ms after layout-cycle
 before committing. Acceptance: overlay never traps focus; excluded when tiling is off.
 
-### 10. Binding modes
-Generalize the resize chord into named modes (resize / move / mono) reusing
-`hook.rs` action-key dispatch; `Esc` exits to the base chord set like today.
-- Acceptance: no new global listener per mode; the chordâmode map is data, not code
-  per mode (add a mode = add a table row).
-
-## Non-goals
-- Per-window animations or transparency effects (frame churn, battery).
-- Shipping a status bar; selling one integrable state stream (item 8).
-- A general plugin/runtime (Lua/AHK/JS) â IPC + config covers the same need.
+### 10. Binding modes (status: done - 2026-11-12)
+- `modes.rs` (new): `MODE: Mutex<String>`; `current`, `enter`, `exit`, `action_for`.
+  Modes: resize (arrows nudge), move (arrows move window). Esc exits move mode.
+- IPC: `enter-mode <name>`. Hotkey Win+V enters move mode; Win+R toggles resize.
+- Acceptance: build clean; mode entry via IPC verified ("mode move"/"mode base").

@@ -192,6 +192,7 @@ fn dispatch(cmd: &str) -> String {
             "OK".into()
         }
         "layout-cycle" => { let n = crate::layouts::cycle(); format!("layout {n}") }
+        "enter-mode" => { let name = parts.get(1).copied().unwrap_or("base"); crate::modes::enter(name); format!("mode {name}") }
         "toggle-float" => { let h = win32::foreground(); if !h.is_null() { crate::managed::toggle_float(h as isize); } "OK".into() }
         "swap-next" => { let h = win32::foreground(); if !h.is_null() { layout::swap_next(h); } "OK".into() }
         "promote" => { let h = win32::foreground(); if !h.is_null() { layout::promote(h); } "OK".into() }
