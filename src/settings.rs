@@ -1436,6 +1436,8 @@ unsafe fn collect_config(parent: HWND) -> Result<Config, String> {
         exclude_titles,
         exclude_classes,
         exclude_pids,
+        gap_inner: 0,
+        gap_outer: 0,
         borders: crate::config::BorderSettings {
             enabled,
             thickness,

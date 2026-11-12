@@ -104,7 +104,13 @@ zero idle wakeups) with a 150 ms debounce.
   `summon()`: pop last parked, restore rect + show, un-float, re-tile.
 - IPC + CLI: park, summon. Acceptance: both round-trip OK; build clean.
 
-### 6. Gaps inner/outer
+### 6. Gaps inner/outer *(status: done - 2026-11-12)*
+- Config: `gap_inner`, `gap_outer` (default 0).
+- `fit_all`, `tile_cols`, `tile_rows`, `main_split`, `pin_*`, `maximize`, `promote`
+  all apply outer (workarea inset) and inner (between tiles) gaps, clamped >= 0.
+- Acceptance: build clean.
+
+### 7. Focus niceties
 `fit_all()` arithmetic resourced from config: `gap_inner`, `gap_outer` px. Settings GUI
 fields in Basics.
 - Acceptance: visible at all 9 layouts; â¤0 results clamp to 0; parse errors fall back

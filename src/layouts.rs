@@ -42,75 +42,102 @@ pub fn apply(name: &str) -> bool {
 }
 
 fn tile_cols(hwnds: &[HWND], cols: i32, wa: &windows_sys::Win32::Foundation::RECT) {
-    let w = wa.right - wa.left;
-    let h = wa.bottom - wa.top;
+    let cfg = crate::config::load();
+    let go = cfg.gap_outer.max(0);
+    let gi = cfg.gap_inner.max(0);
+    let area_left = wa.left + go;
+    let area_top = wa.top + go;
+    let area_w = (wa.right - wa.left) - 2 * go;
+    let area_h = (wa.bottom - wa.top) - 2 * go;
+    if area_w <= 0 || area_h <= 0 { return; }
     let n = hwnds.len() as i32;
     let rows = (n + cols - 1) / cols;
-    let cw = w / cols;
-    let ch = h / rows.max(1);
+    let cw = (area_w - (cols - 1) * gi) / cols;
+    let ch = (area_h - (rows - 1).max(0) * gi) / rows.max(1);
+    if cw <= 0 || ch <= 0 { return; }
     for (i, &hwnd) in hwnds.iter().enumerate() {
         let col = (i as i32) % cols;
         let row = (i as i32) / cols;
+        let x = area_left + col * (cw + gi);
+        let y = area_top + row * (ch + gi);
         win32::restore(hwnd);
-        win32::move_resize(hwnd, wa.left + col * cw, wa.top + row * ch, cw, ch);
+        win32::move_resize(hwnd, x, y, cw, ch);
     }
 }
 
 fn tile_rows(hwnds: &[HWND], rows: i32, wa: &windows_sys::Win32::Foundation::RECT) {
-    let w = wa.right - wa.left;
-    let h = wa.bottom - wa.top;
+    let cfg = crate::config::load();
+    let go = cfg.gap_outer.max(0);
+    let gi = cfg.gap_inner.max(0);
+    let area_left = wa.left + go;
+    let area_top = wa.top + go;
+    let area_w = (wa.right - wa.left) - 2 * go;
+    let area_h = (wa.bottom - wa.top) - 2 * go;
+    if area_w <= 0 || area_h <= 0 { return; }
     let n = hwnds.len() as i32;
     let cols = (n + rows - 1) / rows;
-    let cw = w / cols.max(1);
-    let ch = h / rows;
+    let cw = (area_w - (cols - 1).max(0) * gi) / cols.max(1);
+    let ch = (area_h - (rows - 1) * gi) / rows;
+    if cw <= 0 || ch <= 0 { return; }
     for (i, &hwnd) in hwnds.iter().enumerate() {
         let col = (i as i32) % cols;
         let row = (i as i32) / cols;
+        let x = area_left + col * (cw + gi);
+        let y = area_top + row * (ch + gi);
         win32::restore(hwnd);
-        win32::move_resize(hwnd, wa.left + col * cw, wa.top + row * ch, cw, ch);
+        win32::move_resize(hwnd, x, y, cw, ch);
     }
 }
 
 fn main_split(hwnds: &[HWND], vertical: bool, main_first: bool, wa: &windows_sys::Win32::Foundation::RECT) {
-    // main window takes 2/3, rest stacked in 1/3
-    let w = wa.right - wa.left;
-    let h = wa.bottom - wa.top;
+    let cfg = crate::config::load();
+    let go = cfg.gap_outer.max(0);
+    let gi = cfg.gap_inner.max(0);
+    let area_left = wa.left + go;
+    let area_top = wa.top + go;
+    let area_w = (wa.right - wa.left) - 2 * go;
+    let area_h = (wa.bottom - wa.top) - 2 * go;
+    if area_w <= 0 || area_h <= 0 { return; }
+    let w = area_w;
+    let h = area_h;
     let main = win32::foreground();
     let main = if main.is_null() || !hwnds.contains(&main) { hwnds[0] } else { main };
     let rest: Vec<HWND> = hwnds.iter().copied().filter(|&x| x != main).collect();
     if vertical {
-        let mw = w * 2 / 3;
-        let rw = w - mw;
+        let mw = (w - gi) * 2 / 3;
+        let rw = w - mw - gi;
         if main_first {
             win32::restore(main);
-            win32::move_resize(main, wa.left, wa.top, mw, h);
+            win32::move_resize(main, area_left, area_top, mw, h);
         } else {
             win32::restore(main);
-            win32::move_resize(main, wa.left + rw, wa.top, mw, h);
+            win32::move_resize(main, area_left + rw + gi, area_top, mw, h);
         }
         let n = rest.len() as i32;
-        let ch = if n > 0 { h / n } else { h };
+        let ch = if n > 0 { (h - (n - 1) * gi) / n } else { h };
+        if ch <= 0 { return; }
         for (i, &hwnd) in rest.iter().enumerate() {
             win32::restore(hwnd);
-            let x = if main_first { wa.left + mw } else { wa.left };
-            win32::move_resize(hwnd, x, wa.top + i as i32 * ch, rw, ch);
+            let x = if main_first { area_left + mw + gi } else { area_left };
+            win32::move_resize(hwnd, x, area_top + i as i32 * (ch + gi), rw, ch);
         }
     } else {
-        let mh = h * 2 / 3;
-        let rh = h - mh;
+        let mh = (h - gi) * 2 / 3;
+        let rh = h - mh - gi;
         if main_first {
             win32::restore(main);
-            win32::move_resize(main, wa.left, wa.top, w, mh);
+            win32::move_resize(main, area_left, area_top, w, mh);
         } else {
             win32::restore(main);
-            win32::move_resize(main, wa.left, wa.top + rh, w, mh);
+            win32::move_resize(main, area_left, area_top + rh + gi, w, mh);
         }
         let n = rest.len() as i32;
-        let cw = if n > 0 { w / n } else { w };
+        let cw = if n > 0 { (w - (n - 1) * gi) / n } else { w };
+        if cw <= 0 { return; }
         for (i, &hwnd) in rest.iter().enumerate() {
             win32::restore(hwnd);
-            let y = if main_first { wa.top + mh } else { wa.top };
-            win32::move_resize(hwnd, wa.left + i as i32 * cw, y, cw, rh);
+            let y = if main_first { area_top + mh + gi } else { area_top };
+            win32::move_resize(hwnd, area_left + i as i32 * (cw + gi), y, cw, rh);
         }
     }
 }

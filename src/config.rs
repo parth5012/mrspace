@@ -59,6 +59,12 @@ pub struct Config {
     pub exclude_classes: Vec<String>,
     /// Process IDs to never manage.
     pub exclude_pids: Vec<u32>,
+    /// Inner gap between tiled windows (px).
+    #[serde(default)]
+    pub gap_inner: i32,
+    /// Outer gap around the work area (px).
+    #[serde(default)]
+    pub gap_outer: i32,
     /// Border overlay options.
     #[serde(default)]
     pub borders: BorderSettings,
@@ -110,6 +116,8 @@ impl Default for Config {
             ],
             exclude_classes: vec!["RainmeterMeterWindow".into()],
             exclude_pids: vec![],
+            gap_inner: 0,
+            gap_outer: 0,
             borders: Default::default(),
             window_rules: vec![],
             hotkeys: hk,
