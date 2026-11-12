@@ -24,6 +24,18 @@ pub struct BorderSettings {
     pub muted: String,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize, Default, Debug)]
+pub struct WindowRule {
+    #[serde(default)]
+    pub match_title: Option<String>,
+    #[serde(default)]
+    pub match_class: Option<String>,
+    #[serde(default)]
+    pub match_exe: Option<String>,
+    #[serde(default)]
+    pub action: String,
+}
+
 impl Default for BorderSettings {
     fn default() -> Self {
         Self {
@@ -50,6 +62,9 @@ pub struct Config {
     /// Border overlay options.
     #[serde(default)]
     pub borders: BorderSettings,
+    /// Window rules: match title/class/exe -> float/ignore/no-manage.
+    #[serde(default)]
+    pub window_rules: Vec<WindowRule>,
     pub hotkeys: Vec<Hotkey>,
 }
 
@@ -96,6 +111,7 @@ impl Default for Config {
             exclude_classes: vec!["RainmeterMeterWindow".into()],
             exclude_pids: vec![],
             borders: Default::default(),
+            window_rules: vec![],
             hotkeys: hk,
         }
     }

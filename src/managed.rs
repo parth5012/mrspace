@@ -26,6 +26,7 @@ pub fn toggle_float(hwnd: isize) -> bool {
     !was
 }
 
-pub fn clear() {
-    FLOATING.lock().unwrap().clear();
+pub fn set_floating(hwnd: isize, floating: bool) {
+    let mut set = FLOATING.lock().unwrap();
+    if floating { set.insert(hwnd); } else { set.remove(&hwnd); }
 }

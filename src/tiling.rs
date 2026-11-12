@@ -143,6 +143,10 @@ pub fn init() {
                 // workspace switch detection rides the same event wake — cloak
                 // events fire for every window leaving/entering a desktop
                 let switched = crate::workspace::on_retile_tick();
+                // apply float rules to any newly-seen windows before counting
+                for h in crate::win32::enum_windows() {
+                    crate::rules::apply_float_rules(h);
+                }
                 let count = manageable_count();
                 let last = LAST_COUNT.load(Ordering::Relaxed);
                 if switched {

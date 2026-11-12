@@ -1442,6 +1442,7 @@ unsafe fn collect_config(parent: HWND) -> Result<Config, String> {
             accent: raw_accent.trim().trim_start_matches('#').to_string(),
             muted: raw_muted.trim().trim_start_matches('#').to_string(),
         },
+        window_rules: Vec::new(),
         hotkeys,
     })
 }

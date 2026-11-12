@@ -80,6 +80,24 @@ pub fn process_id(hwnd: HWND) -> u32 {
     pid
 }
 
+pub fn process_name(hwnd: HWND) -> String {
+    let pid = process_id(hwnd);
+    if pid == 0 { return String::new(); }
+    unsafe {
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
+        use windows_sys::Win32::Foundation::CloseHandle;
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() { return String::new(); }
+        let mut buf = [0u16; 512];
+        let mut size = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut size);
+        CloseHandle(h);
+        if ok == 0 { return String::new(); }
+        let full = String::from_utf16_lossy(&buf[..size as usize]);
+        full.rsplit('\\').next().unwrap_or(&full).to_string()
+    }
+}
+
 pub fn foreground() -> HWND {
     unsafe { GetForegroundWindow() }
 }
@@ -144,6 +162,8 @@ pub fn is_manageable(hwnd: HWND) -> bool {
     if hwnd.is_null() { return false; }
     // Floating windows are user-placed: excluded from tiling/counting/borders.
     if crate::managed::is_floating(hwnd as isize) { return false; }
+    // Window rules: ignore / no-manage → not manageable.
+    if crate::rules::is_ignored(hwnd) { return false; }
     // Cloaked windows live on other virtual desktops (or are suspended UWP):
     // they must never be tiled or counted — DWM does the check, no cross-process
     // message sent, so it cannot hang the way WM_GETTEXT can.

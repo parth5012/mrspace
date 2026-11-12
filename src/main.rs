@@ -9,6 +9,7 @@ mod hook;
 mod layout;
 mod layouts;
 mod managed;
+mod rules;
 mod palette;
 mod resize;
 mod settings;
