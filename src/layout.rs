@@ -156,6 +156,9 @@ pub(crate) fn choose_cols(mins: &[(i32, i32)], area_w: i32, area_h: i32, gi: i32
 /// Tile `hwnds` row-major with `cols` columns, honoring each window's
 /// minimum tracking size: row heights come from the tallest min height in
 /// the row, widths from a min-aware equal split, gaps between everything.
+/// With `apply == false` nothing is moved — the computed slots are returned
+/// instead (used by the layout preview to draw ghost regions). Returns
+/// (hwnd, x, y, w, h) tuples in slot order.
 pub(crate) fn tile_grid(
     hwnds: &[windows_sys::Win32::Foundation::HWND],
     cols: i32,
@@ -165,8 +168,10 @@ pub(crate) fn tile_grid(
     area_w: i32,
     area_h: i32,
     gi: i32,
-) {
-    if hwnds.is_empty() || area_w <= 0 || area_h <= 0 { return; }
+    apply: bool,
+) -> Vec<(isize, i32, i32, i32, i32)> {
+    let mut slots = Vec::new();
+    if hwnds.is_empty() || area_w <= 0 || area_h <= 0 { return slots; }
     let cols = cols.max(1);
     let mut rows: Vec<Vec<usize>> = Vec::new();
     for i in 0..hwnds.len() {
@@ -184,29 +189,38 @@ pub(crate) fn tile_grid(
         let widths = distribute(area_w - (row.len() as i32 - 1) * gi, &width_mins);
         let mut x = area_left;
         for (c, &i) in row.iter().enumerate() {
-            win32::restore(hwnds[i]);
-            win32::move_resize(hwnds[i], x, y, widths[c], heights[r]);
-            crate::borders::note_window(hwnds[i]);
+            slots.push((hwnds[i] as isize, x, y, widths[c], heights[r]));
+            if apply {
+                win32::restore(hwnds[i]);
+                win32::move_resize(hwnds[i], x, y, widths[c], heights[r]);
+                crate::borders::note_window(hwnds[i]);
+            }
             x += widths[c] + gi;
         }
         y += heights[r] + gi;
     }
+    slots
 }
 
 /// Re-tile an explicit window order on the primary work area grid,
-/// automatically choosing the largest feasible column count.
-pub(crate) fn retile(hwnds: &[windows_sys::Win32::Foundation::HWND]) {
-    if hwnds.is_empty() { return; }
+/// automatically choosing the largest feasible column count. With
+/// `apply == false` only the would-be slots are computed (layout preview).
+pub(crate) fn retile_apply(hwnds: &[windows_sys::Win32::Foundation::HWND], apply: bool) -> Vec<(isize, i32, i32, i32, i32)> {
+    if hwnds.is_empty() { return Vec::new(); }
     let cfg = crate::config::load();
     let go = cfg.gap_outer.max(0);
     let gi = cfg.gap_inner.max(0);
     let wa = win32::primary_work_area();
     let area_w = (wa.right - wa.left) - 2 * go;
     let area_h = (wa.bottom - wa.top) - 2 * go;
-    if area_w <= 0 || area_h <= 0 { return; }
+    if area_w <= 0 || area_h <= 0 { return Vec::new(); }
     let mins: Vec<(i32, i32)> = hwnds.iter().map(|&h| win32::min_track_size(h)).collect();
     let cols = choose_cols(&mins, area_w, area_h, gi);
-    tile_grid(hwnds, cols, &mins, wa.left + go, wa.top + go, area_w, area_h, gi);
+    tile_grid(hwnds, cols, &mins, wa.left + go, wa.top + go, area_w, area_h, gi, apply)
+}
+
+pub(crate) fn retile(hwnds: &[windows_sys::Win32::Foundation::HWND]) {
+    retile_apply(hwnds, true);
 }
 
 pub fn fit_all() {

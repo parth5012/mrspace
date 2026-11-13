@@ -14,6 +14,7 @@ mod mouse_focus;
 mod rules;
 mod scratchpad;
 mod palette;
+mod preview;
 mod resize;
 mod settings;
 mod tiling;
@@ -177,7 +178,7 @@ fn main() {
         Some(Commands::State) => run_or_direct(p, "state", || {}),
         Some(Commands::ToggleTiling) => run_or_direct(p, "toggle-tiling", || { let _ = tiling::toggle(); }),
         Some(Commands::Layout { name }) => run_or_direct(p, &format!("layout {name}"), || { let _ = layouts::apply(&name); }),
-        Some(Commands::LayoutCycle) => run_or_direct(p, "layout-cycle", || { layouts::cycle(); }),
+        Some(Commands::LayoutCycle) => run_or_direct(p, "layout-cycle", || { preview::cycle(); }),
         Some(Commands::ToggleFloat) => run_or_direct(p, "toggle-float", || { let h = win32::foreground(); if !h.is_null() { managed::toggle_float(h as isize); } }),
         Some(Commands::SwapNext) => run_or_direct(p, "swap-next", || { let h = win32::foreground(); if !h.is_null() { layout::swap_next(h); } }),
         Some(Commands::Promote) => run_or_direct(p, "promote", || { let h = win32::foreground(); if !h.is_null() { layout::promote(h); } }),

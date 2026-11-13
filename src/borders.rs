@@ -41,6 +41,9 @@ fn opts() -> std::sync::MutexGuard<'static, BorderOptions> {
     OPTS.lock().unwrap()
 }
 
+/// Accent color for other modules drawing overlays (layout preview ghosts).
+pub(crate) fn accent_color() -> u32 { OPTS.lock().unwrap().accent }
+
 /// Parse "RRGGBB" hex into COLORREF-style 0x00BBGGRR (tolerant: '#' allowed).
 pub fn parse_color(s: &str, fallback: u32) -> u32 {
     let s = s.trim().trim_start_matches('#');
@@ -270,7 +273,7 @@ unsafe fn tick() {
             }
         } else if e.w != w || e.h != h || e.color != color {
             // size/color change: full redraw (UpdateLayeredWindow also moves)
-            redraw_overlay(e.overlay as HWND, w, h, r.left, r.top, color);
+            redraw_overlay(e.overlay as HWND, w, h, r.left, r.top, color, 0);
             e.x = r.left;
             e.y = r.top;
             e.w = w;
@@ -297,6 +300,17 @@ unsafe fn tick() {
 }
 
 unsafe fn create_overlay(w: i32, h: i32, x: i32, y: i32, color: u32) -> isize {
+    create_overlay_ex(w, h, x, y, color, 0)
+}
+
+/// Same layered click-through window, but with a translucent interior fill
+/// (0 = transparent interior, like the border rings). Used by the layout
+/// preview: ghosts need to be seen as *regions*, not just outlines.
+pub(crate) unsafe fn create_ghost(w: i32, h: i32, x: i32, y: i32, color: u32, fill_alpha: u8) -> isize {
+    create_overlay_ex(w, h, x, y, color, fill_alpha as u32)
+}
+
+unsafe fn create_overlay_ex(w: i32, h: i32, x: i32, y: i32, color: u32, fill_alpha: u32) -> isize {
     ensure_class();
     let hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
@@ -320,11 +334,11 @@ unsafe fn create_overlay(w: i32, h: i32, x: i32, y: i32, color: u32) -> isize {
         hwnd, windows_sys::Win32::UI::WindowsAndMessaging::HWND_TOPMOST, 0, 0, 0, 0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
     );
-    redraw_overlay(hwnd, w, h, x, y, color);
+    redraw_overlay(hwnd, w, h, x, y, color, fill_alpha);
     hwnd as isize
 }
 
-unsafe fn redraw_overlay(hwnd: HWND, w: i32, h: i32, x: i32, y: i32, color: u32) {
+unsafe fn redraw_overlay(hwnd: HWND, w: i32, h: i32, x: i32, y: i32, color: u32, fill_alpha: u32) {
     let scr_dc = GetDC(std::ptr::null_mut());
     if scr_dc.is_null() {
         return;
@@ -364,13 +378,14 @@ unsafe fn redraw_overlay(hwnd: HWND, w: i32, h: i32, x: i32, y: i32, color: u32)
     }
     SelectObject(mem_dc, hbmp as *mut _);
 
-    // fill: transparent interior, opaque ring (premultiplied alpha, a=255 ==
-    // solid color as-is)
+    // fill: transparent (or translucent) interior, opaque ring (premultiplied
+    // alpha, a=255 == solid color as-is)
     let px = bits as *mut u32;
     let stride = w as usize;
     let bw = opts().thickness.clamp(1, 20) as usize;
     let (cw, ch) = (w as usize, h as usize);
     let fill = color | (0xFFu32 << 24);
+    let inner = color | (fill_alpha << 24);
     for row in 0..ch {
         for col in 0..cw {
             let on_ring =
@@ -378,7 +393,7 @@ unsafe fn redraw_overlay(hwnd: HWND, w: i32, h: i32, x: i32, y: i32, color: u32)
             if on_ring {
                 *px.add(row * stride + col) = fill;
             } else {
-                *px.add(row * stride + col) = 0;
+                *px.add(row * stride + col) = inner;
             }
         }
     }

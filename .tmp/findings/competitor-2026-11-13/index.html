@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mr. Space vs komorebi / GlazeWM v3 / FancyZones — feature gap &amp; adoption plan</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --text:#111827; --dim:#6b7280; --line:#e5e7eb;
+    --crit:#b91c1c; --critbg:#fee2e2; --high:#c2410c; --highbg:#ffedd5;
+    --med:#854d0e; --medbg:#fef3c7; --low:#0e7490; --lowbg:#cffafe; --info:#475569; --infobg:#e2e8f0;
+    --acc:#2563eb; --accsoft:#dbeafe;
+    --sans:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+    --mono:'Cascadia Code','JetBrains Mono',Consolas,monospace;
+  }
+  [data-theme="dark"]{
+    --bg:#0f1218; --card:#161a22; --text:#e5e7eb; --dim:#9ca3af; --line:#262c38;
+    --crit:#f87171; --critbg:rgba(248,113,113,.14); --high:#fb923c; --highbg:rgba(251,146,60,.14);
+    --med:#facc15; --medbg:rgba(250,204,21,.13); --low:#22d3ee; --lowbg:rgba(34,211,238,.13); --info:#94a3b8; --infobg:rgba(148,163,184,.14);
+    --acc:#60a5fa; --accsoft:rgba(96,165,250,.14);
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.55}
+  .wrap{max-width:1100px;margin:0 auto;padding:28px 24px 40px}
+  header.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px}
+  h1{font-size:21px;font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
+  .dotlive{width:8px;height:8px;border-radius:50%;background:#10b981}
+  .sub{color:var(--dim);font-size:12.5px;margin-top:4px}
+  .theme{all:unset;cursor:pointer;width:36px;height:36px;border-radius:9px;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;font-size:16px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px}
+  .dist{padding:18px 20px;margin-bottom:14px}
+  .heatbar{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--line);margin-bottom:14px}
+  .heatbar span{height:100%}
+  .hb-critical{background:var(--crit)} .hb-high{background:var(--high)} .hb-medium{background:var(--med)} .hb-low{background:var(--low)} .hb-info{background:var(--info)}
+  .legend{display:flex;flex-wrap:wrap;gap:6px}
+  .pill{all:unset;cursor:pointer;font-size:11.5px;font-weight:600;padding:4px 11px;border-radius:99px;border:1px solid transparent;display:inline-flex;align-items:center;gap:7px;transition:opacity .12s}
+  .pill i{width:7px;height:7px;border-radius:50%;display:inline-block;font-style:normal}
+  .pill.critical{color:var(--crit);background:var(--critbg)} .pill.critical i{background:var(--crit)}
+  .pill.high{color:var(--high);background:var(--highbg)} .pill.high i{background:var(--high)}
+  .pill.medium{color:var(--med);background:var(--medbg)} .pill.medium i{background:var(--med)}
+  .pill.low{color:var(--low);background:var(--lowbg)} .pill.low i{background:var(--low)}
+  .pill.info{color:var(--info);background:var(--infobg)} .pill.info i{background:var(--info)}
+  .pill.off{opacity:.35}
+  .toolbar{position:sticky;top:12px;z-index:5;display:flex;gap:10px;align-items:center;padding:11px 14px;margin-bottom:14px;box-shadow:0 4px 14px rgba(0,0,0,.06)}
+  .search{flex:1;min-width:160px;all:unset;font-size:13px;color:var(--text)}
+  .search::placeholder{color:var(--dim)}
+  .sicon{color:var(--dim)}
+  select{all:unset;cursor:pointer;font-size:12.5px;color:var(--text);border-left:1px solid var(--line);padding-left:12px}
+  .clearbtn{all:unset;cursor:pointer;font-size:12px;font-weight:600;color:var(--acc);white-space:nowrap}
+  .clearbtn[hidden]{display:none}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);padding:12px 16px;border-bottom:1px solid var(--line);font-weight:600}
+  td{padding:13px 16px;border-bottom:1px solid var(--line);font-size:13.5px;vertical-align:middle}
+  tbody tr{cursor:pointer;transition:background .1s}
+  tbody tr:hover{background:var(--accsoft)}
+  tbody tr:last-child td{border-bottom:none}
+  tr.hidden{display:none}
+  .badge{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 9px;border-radius:6px}
+  .badge.critical{color:var(--crit);background:var(--critbg)} .badge.high{color:var(--high);background:var(--highbg)}
+  .badge.medium{color:var(--med);background:var(--medbg)} .badge.low{color:var(--low);background:var(--lowbg)} .badge.info{color:var(--info);background:var(--infobg)}
+  .ftitle{font-weight:550}
+  .url-link{font-size:11px;font-weight:600;color:var(--acc);text-decoration:none;padding:1px 6px;border-radius:4px;background:var(--accsoft);margin-left:6px}
+  .url-link:hover{text-decoration:underline}
+  .cat{color:var(--dim);font-size:12.5px}
+  .path{font-family:var(--mono);font-size:11.5px;color:var(--dim)}
+  .empty{padding:30px;text-align:center;color:var(--dim);font-size:13px}
+  footer{margin-top:18px;text-align:center;color:var(--dim);font-size:11.5px}
+  @media print{.toolbar,.theme{display:none}body{background:#fff}}
+</style>
+<script>
+function vfTgl(){const h=document.documentElement,next=h.getAttribute('data-theme')==='dark'?'light':'dark';h.setAttribute('data-theme',next);try{localStorage.setItem('vf-theme',next)}catch(e){}}
+try{const t=localStorage.getItem('vf-theme');if(t)document.documentElement.setAttribute('data-theme',t);else if(matchMedia('(prefers-color-scheme: dark)').matches)document.documentElement.setAttribute('data-theme','dark')}catch(e){}
+</script>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div><h1><span class="dotlive"></span> Mr. Space vs komorebi / GlazeWM v3 / FancyZones — feature gap &amp; adoption plan</h1><p class="sub">Generated 2026-11-13 · 14 findings</p></div>
+    <button class="theme" onclick="vfTgl()" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <div class="panel dist">
+    <div class="heatbar">
+      <span class="hb-critical" style="width:7.142857142857142%"></span>
+      <span class="hb-high" style="width:28.57142857142857%"></span>
+      <span class="hb-medium" style="width:35.714285714285715%"></span>
+      <span class="hb-low" style="width:14.285714285714285%"></span>
+      <span class="hb-info" style="width:14.285714285714285%"></span>
+    </div>
+    <div class="legend">
+      <button class="pill critical" id="p-critical" onclick="flt('critical')"><i></i> Critical · 1</button>
+      <button class="pill high" id="p-high" onclick="flt('high')"><i></i> High · 4</button>
+      <button class="pill medium" id="p-medium" onclick="flt('medium')"><i></i> Medium · 5</button>
+      <button class="pill low" id="p-low" onclick="flt('low')"><i></i> Low · 2</button>
+      <button class="pill info" id="p-info" onclick="flt('info')"><i></i> Info · 2</button>
+    </div>
+  </div>
+
+  <div class="panel toolbar">
+    <span class="sicon">⌕</span><input class="search" id="q" placeholder="Search titles, files, tags…">
+    <select onchange="apply()"><option value="">All categories</option><option value="ux">ux</option><option value="feature">feature</option><option value="robustness">robustness</option><option value="performance">performance</option><option value="tech-debt">tech-debt</option></select>
+    <button class="clearbtn" id="clearBtn" hidden onclick="reset()">✕ Reset filters</button>
+  </div>
+
+  <div class="panel">
+    <table>
+      <thead><tr><th style="width:110px">Severity</th><th>Finding</th><th style="width:130px">Category</th><th style="width:290px">Location</th></tr></thead>
+      <tbody id="rows">
+      <tr data-sev="critical" data-cat="ux" onclick="location.href='finding-001.html'">
+        <td><span class="badge critical">critical</span></td>
+        <td class="ftitle">Multi-monitor tiling — we only auto-tile the primary work area </td>
+        <td class="cat">ux</td>
+        <td class="path">src/layout.rs (retile uses primary_work_area)</td>
+      </tr>
+      <tr data-sev="high" data-cat="feature" onclick="location.href='finding-002.html'">
+        <td><span class="badge high">high</span></td>
+        <td class="ftitle">Dynamic split direction (i3-style &#039;where does the next window go&#039;) </td>
+        <td class="cat">feature</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="high" data-cat="ux" onclick="location.href='finding-003.html'">
+        <td><span class="badge high">high</span></td>
+        <td class="ftitle">Quick layout switch overlay (Win+`-style visual picker) </td>
+        <td class="cat">ux</td>
+        <td class="path">ROADMAP Tier 3.2 (deferred)</td>
+      </tr>
+      <tr data-sev="high" data-cat="feature" onclick="location.href='finding-004.html'">
+        <td><span class="badge high">high</span></td>
+        <td class="ftitle">Drag-to-tile: drop a window on an edge/corner to pin it </td>
+        <td class="cat">feature</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="high" data-cat="robustness" onclick="location.href='finding-005.html'">
+        <td><span class="badge high">high</span></td>
+        <td class="ftitle">Crash safety: persist parked/hidden windows and restore on next start </td>
+        <td class="cat">robustness</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="medium" data-cat="ux" onclick="location.href='finding-006.html'">
+        <td><span class="badge medium">medium</span></td>
+        <td class="ftitle">Cursor warping / mouse-follows-focus </td>
+        <td class="cat">ux</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="medium" data-cat="feature" onclick="location.href='finding-007.html'">
+        <td><span class="badge medium">medium</span></td>
+        <td class="ftitle">Floating window niceties: center on float, always-on-top toggle </td>
+        <td class="cat">feature</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="medium" data-cat="feature" onclick="location.href='finding-008.html'">
+        <td><span class="badge medium">medium</span></td>
+        <td class="ftitle">Back-and-forth workspace toggle (deferred Tier 2.4) </td>
+        <td class="cat">feature</td>
+        <td class="path">ROADMAP Tier 2.4</td>
+      </tr>
+      <tr data-sev="medium" data-cat="ux" onclick="location.href='finding-009.html'">
+        <td><span class="badge medium">medium</span></td>
+        <td class="ftitle">Config hot-reload (no restart after editing settings) </td>
+        <td class="cat">ux</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="medium" data-cat="feature" onclick="location.href='finding-010.html'">
+        <td><span class="badge medium">medium</span></td>
+        <td class="ftitle">Per-workspace main-ratio memory (extend the layout memory we have) </td>
+        <td class="cat">feature</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="low" data-cat="feature" onclick="location.href='finding-011.html'">
+        <td><span class="badge low">low</span></td>
+        <td class="ftitle">Event subscription stream for user widgets </td>
+        <td class="cat">feature</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="low" data-cat="ux" onclick="location.href='finding-012.html'">
+        <td><span class="badge low">low</span></td>
+        <td class="ftitle">Unfocused window dimming/opacity (static, no animation) </td>
+        <td class="cat">ux</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="info" data-cat="performance" onclick="location.href='finding-013.html'">
+        <td><span class="badge info">info</span></td>
+        <td class="ftitle">RAM footprint stays our differentiator — keep it that way </td>
+        <td class="cat">performance</td>
+        <td class="path">—</td>
+      </tr>
+      <tr data-sev="info" data-cat="tech-debt" onclick="location.href='finding-014.html'">
+        <td><span class="badge info">info</span></td>
+        <td class="ftitle">What NOT to copy: named workspaces, bars, and BSP trees </td>
+        <td class="cat">tech-debt</td>
+        <td class="path">—</td>
+      </tr></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>No findings match the current filters.</div>
+  </div>
+  <footer>Self-contained report · Ctrl+P for PDF · visual-findings</footer>
+</div>
+<script>
+let sev=null; const q=document.getElementById('q'), catSel=document.querySelector('select');
+q.addEventListener('input',apply);
+function flt(s){
+  sev=(sev===s)?null:s;
+  ['critical','high','medium','low','info'].forEach(x=>document.getElementById('p-'+x).classList.toggle('off',sev&&sev!==x));
+  apply();
+}
+function reset(){sev=null;q.value='';catSel.value='';['critical','high','medium','low','info'].forEach(x=>document.getElementById('p-'+x).classList.remove('off'));apply()}
+function apply(){
+  const t=q.value.toLowerCase(), c=catSel.value; let n=0;
+  document.querySelectorAll('#rows tr').forEach(r=>{
+    const ok=(!sev||r.dataset.sev===sev)&&(!c||r.dataset.cat===c)&&(!t||r.textContent.toLowerCase().includes(t));
+    r.classList.toggle('hidden',!ok); if(ok)n++;
+  });
+  document.getElementById('empty').hidden=n>0;
+  document.getElementById('clearBtn').hidden=!sev&&!t&&!c;
+}
+</script>
+</body>
+</html>

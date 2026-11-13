@@ -17,6 +17,11 @@ Probe windows: use **mspaint** (classic Win32, never suspends). Avoid Win11 Note
 ### 1.2 Workspace-scoped layout memory
 1. Desktop 1: launch 2 mspaint, press **Win+O** a few times to land on "main-left" (windows split 2/3 + 1/3). Or **Win+G** for grid.
 2. Switch desktop (Ctrl+Win+Right). Launch 1 mspaint on desktop 2, **Win+O** to cycle to a different layout.
+3. Preview: with tiling ON, press **Win+O** once and watch — translucent purple
+   ghost regions show where the *next* layout will put each window for ~0.8 s,
+   then it commits. Press **Win+O** again inside that window to advance to the
+   next preset instead (the ghost redraws; the timer restarts). Ghosts are
+   click-through: clicking where a ghost is never steals focus.
 3. Switch back to desktop 1 → windows re-arrange to the layout you left.
 4. Switch to desktop 2 → windows re-arrange to its layout.
 
@@ -40,6 +45,11 @@ Restart daemon. Launch mspaint → it floats (not tiled). Change `"action"` to `
 1. Focus a window, press **Win+Y** → window disappears (no taskbar flash), others re-tile.
 2. Press **Win+U** → window returns at its exact original rect.
 3. Repeat park/summon → each summon restores the most recently parked.
+4. Crash safety: park a window (**Win+Y**), then kill the daemon from Task
+   Manager (mrspace.exe → End task). Relaunch mrspace daemon → the parked
+   window comes back on-screen automatically (restored from
+   `%APPDATA%\mrspace\parked.json`), even though the daemon died while it was
+   hidden offscreen.
 
 ### 2.3 Gaps
 Edit config: `"gap_inner": 12, "gap_outer": 8`. Restart daemon, press **Win+G** → visible gaps between and around tiles. Set to 0 → flush (default).

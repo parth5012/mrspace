@@ -12,6 +12,9 @@ pub fn run(cfg: Config) {
     crate::borders::configure(&cfg.borders);
     crate::borders::start();
     crate::mouse_focus::start();
+    crate::preview::start();
+    // un-strand windows parked by a previous daemon that died (crash / kill)
+    crate::scratchpad::restore_on_start();
     let port = cfg.ipc_port;
 
     // ipc server
@@ -191,7 +194,7 @@ fn dispatch(cmd: &str) -> String {
             execute_action(&parts[1..].join(" "));
             "OK".into()
         }
-        "layout-cycle" => { let n = crate::layouts::cycle(); format!("layout {n}") }
+        "layout-cycle" => { let n = crate::preview::cycle(); format!("layout {n}") }
         "enter-mode" => { let name = parts.get(1).copied().unwrap_or("base"); crate::modes::enter(name); format!("mode {name}") }
         "toggle-float" => { let h = win32::foreground(); if !h.is_null() { crate::managed::toggle_float(h as isize); } "OK".into() }
         "swap-next" => { let h = win32::foreground(); if !h.is_null() { layout::swap_next(h); } "OK".into() }
@@ -253,7 +256,7 @@ pub fn execute_action(action: &str) {
         "move-prev-desktop" => crate::desktop::move_to_prev_desktop(),
         "palette" => crate::daemon::spawn_palette_process(),
         "toggle-tiling" => { let _ = crate::tiling::toggle(); },
-        "layout-cycle" => { crate::layouts::cycle(); },
+        "layout-cycle" => { crate::preview::cycle(); },
         "toggle-float" => { let h = win32::foreground(); if !h.is_null() { crate::managed::toggle_float(h as isize); } },
         "swap-next" => { let h = win32::foreground(); if !h.is_null() { layout::swap_next(h); } },
         "promote" => { let h = win32::foreground(); if !h.is_null() { layout::promote(h); } },

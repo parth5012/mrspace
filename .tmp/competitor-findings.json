@@ -1,0 +1,145 @@
+[
+  {
+    "id": "comp-001",
+    "title": "Multi-monitor tiling — we only auto-tile the primary work area",
+    "severity": "critical",
+    "category": "ux",
+    "file": "src/layout.rs (retile uses primary_work_area)",
+    "description": "komorebi, GlazeWM v3 and FancyZones all tile per-monitor with independent layouts. Mr. Space only auto-tiles the primary work area; pin-left/right/top/bottom correctly use the window's own monitor, but fit-all / grid / columns / rows / main-* all collapse windows onto the primary screen. Any user with 2+ monitors loses the product's core promise the moment they switch displays.",
+    "recommendation": "Group the manageable set by monitor (MonitorFromWindow) and run tile_grid per monitor with that monitor's work area. Layout memory keys can extend to guid+monitor. Reuses the existing min-size-aware engine unchanged.",
+    "tags": ["multi-monitor", "gap-vs-all", "medium-effort"],
+    "source": "komorebi README + GlazeWM v3 README (multi-monitor support is a headline feature of both)"
+  },
+  {
+    "id": "comp-002",
+    "title": "Dynamic split direction (i3-style 'where does the next window go')",
+    "severity": "high",
+    "category": "feature",
+    "description": "GlazeWM's single most-loved control: alt+v toggles tiling direction, so the next window splits below/beside the focused one; komorebi implements full BSP trees. Mr. Space's layouts are fixed presets re-applied globally — users cannot compose an adaptive layout for a 3- or 5-window mix without cycling presets.",
+    "recommendation": "A tree-free approximation fits our flat-Vec model: track a per-window 'split hint' (horizontal/vertical); on re-tile, the focused window's hint biases distribute() to split its cell first. Full BSP is explicitly NOT recommended — it conflicts with the flat-memory RAM guardrail. Ship 'split hint + proportional bias' first.",
+    "tags": ["tiling-engine", "high-value", "guardrail-safe"],
+    "source": "GlazeWM v3 FAQ (tiling direction) / komorebi (BSP, monocle, ultrawide layouts)"
+  },
+  {
+    "id": "comp-003",
+    "title": "Quick layout switch overlay (Win+`-style visual picker)",
+    "severity": "high",
+    "category": "ux",
+    "file": "ROADMAP Tier 3.2 (deferred)",
+    "description": "FancyZones' quick layout switch and komorebi's on-the-fly layout cycling are visual-first: the user sees the target layout before committing. We already have the border-overlay machinery to draw ghost regions; Tier 3.2 was deferred only for the undocumented overlay COM work.",
+    "recommendation": "Reuse borders.rs layered windows to render preset ghosts for ~800ms on layout-cycle; arrow keys or repeated Win+` cycles through presets with live preview. No polling — driven from the existing hotkey path. Acceptance from Tier 3.2 stands (never traps focus, off when tiling is off).",
+    "tags": ["overlay", "deferred-tier", "reuses-borders"],
+    "source": "PowerToys FancyZones / komorebi layout commands"
+  },
+  {
+    "id": "comp-004",
+    "title": "Drag-to-tile: drop a window on an edge/corner to pin it",
+    "severity": "high",
+    "category": "feature",
+    "description": "FancyZones' defining interaction is mouse-driven: hold Shift (or auto) and drag a window over a zone to place it. komorebi supports mouse-drag nudging too. Mr. Space is keyboard-only for placement — mouse-heavy users (the majority on Windows) bounce off immediately.",
+    "recommendation": "Watch for a drag in progress (cheap: foreground window + GetAsyncKeyState(LBUTTON) on the existing WinEvent tick during drags — no new polling loop); when the cursor enters an edge strip, flash the corresponding pin region and pin on release. Edge strips only (left/right/top/bottom/center=maximize) keeps it simple and FancyZones-equivalent for the common case.",
+    "tags": ["mouse-users", "onboarding", "medium-effort"],
+    "source": "PowerToys FancyZones; komorebi mouse support"
+  },
+  {
+    "id": "comp-005",
+    "title": "Crash safety: persist parked/hidden windows and restore on next start",
+    "severity": "high",
+    "category": "robustness",
+    "description": "komorebi continuously persists known window handles to komorebi.hwnd.json and ships restore-windows after a crash, because a WM that hides/parks windows can strand them. Our scratchpad parks windows off-screen with ShowWindow tricks; a forced daemon kill (we do taskkill //F in testing!) or crash leaves them invisible and unrecoverable for a non-technical user.",
+    "recommendation": "Write parked-hwnd list (and floating-state map) to %APPDATA% on every park/float change (a few bytes, event-driven); on daemon start, restore any parked windows. ~30 lines total, protects the feature we already shipped.",
+    "tags": ["safety", "cheap", "protects-scratchpad"],
+    "source": "komorebi README (Logs and Debugging → Restoring Windows)"
+  },
+  {
+    "id": "comp-006",
+    "title": "Cursor warping / mouse-follows-focus",
+    "severity": "medium",
+    "category": "ux",
+    "description": "komorebi has mouse_follows_focus; GlazeWM has cursor_jump (focus change moves the cursor). Without it, keyboard focus-walking leaves the cursor parked over a background window, and our focus-follows-mouse then fights the keyboard (focus snaps back on the next mouse twitch).",
+    "recommendation": "When focus moves via our keybinds, SetCursorPos to the target window center — behind the existing focus-follows-mouse config flag (inverted: warp_cursor bool). Trivially cheap, removes a real interaction conflict we introduced in Tier 3.3.",
+    "tags": ["cheap", "fixes-conflict", "keyboard-flow"],
+    "source": "komorebi docs (mouse_follows_focus); GlazeWM config (cursor_jump)"
+  },
+  {
+    "id": "comp-007",
+    "title": "Floating window niceties: center on float, always-on-top toggle",
+    "severity": "medium",
+    "category": "feature",
+    "description": "GlazeWM state defaults center floating windows and can keep them shown on top. Our toggle-float leaves the window wherever it was — after un-tiling, users must manually drag it back into view. No always-on-top option exists.",
+    "recommendation": "Center the window (in its monitor's work area, keeping its size, min-size-aware) when float is enabled; add a 1-line always_on_top toggle action wired to a hotkey. Zero new state.",
+    "tags": ["cheap", "float-polish"],
+    "source": "GlazeWM v3 config (window_behavior.state_defaults)"
+  },
+  {
+    "id": "comp-008",
+    "title": "Back-and-forth workspace toggle (deferred Tier 2.4)",
+    "severity": "medium",
+    "category": "feature",
+    "file": "ROADMAP Tier 2.4",
+    "description": "GlazeWM's toggle_workspace_on_refocus is a top-10 muscle-memory feature: re-pressing the current workspace's key flips to the previous one. We deferred it (Tier 2.4) because the COM desktop machinery is undocumented — but our current_guid temp-probe already solves the read side; we only need 'previous desktop id' tracking plus the Ctrl+Win+number pass-through we already forward.",
+    "recommendation": "Track last two desktop GUIDs on every cloak/uncloak WinEvent (already flowing); hotkey sends Ctrl+Win+prev-digit pass-through or COM move. Re-evaluate now that the COM-per-call pattern is proven stable.",
+    "tags": ["deferred-tier", "com"],
+    "source": "GlazeWM v3 config (general.toggle_workspace_on_refocus)"
+  },
+  {
+    "id": "comp-009",
+    "title": "Config hot-reload (no restart after editing settings)",
+    "severity": "medium",
+    "category": "ux",
+    "description": "komorebi and GlazeWM both reload config on save — iterating on gaps/rules without restarting is part of their UX. Our settings GUI applies live, but hand-editing config.json requires a daemon restart.",
+    "recommendation": "Piggyback on the existing re-tiler wake event: compare config mtime on each wake (not a timer — no polling), reload + apply gaps/borders/rules. A handful of lines, zero steady-state cost.",
+    "tags": ["cheap", "event-driven-safe"],
+    "source": "komorebi (config hot reload); GlazeWM (config_reload_commands)"
+  },
+  {
+    "id": "comp-010",
+    "title": "Per-workspace main-ratio memory (extend the layout memory we have)",
+    "severity": "medium",
+    "category": "feature",
+    "description": "komorebi persists container ratios; GlazeWM resize adjusts panes by %. Our main-left/right/top/bottom uses a hard-coded 2/3 ratio and our workspace layout memory stores only the preset name. Users retune the ratio constantly but lose it on every desktop switch.",
+    "recommendation": "Add `ratio: f32` to DeskState and a resize-mode action (arrows in move/resize modes) that nudges the main pane ±2%, clamped 0.25–0.75. Fits the existing workspace-memory plumbing exactly.",
+    "tags": ["extends-existing", "cheap"],
+    "source": "komorebi ratio adjustment; GlazeWM resize commands"
+  },
+  {
+    "id": "comp-011",
+    "title": "Event subscription stream for user widgets",
+    "severity": "low",
+    "category": "feature",
+    "description": "komorebi's named-pipe/UDS subscriptions (JSON lines, schema-generatable) power yasb/zebar-style bars, and GlazeWM has a CLI+Zebar ecosystem. Our guardrail says no bundled bar — correct — but today third parties can only poll our `state` TCP endpoint, which contradicts our own no-polling stance and wastes CPU for widget authors.",
+    "recommendation": "Push one JSON line per tiling-relevant event (focus change, layout applied, window added/removed) to connected TCP clients on port 17331 — we already own the socket and every event source. No schema generation needed initially; document the line format in TESTING.md.",
+    "tags": ["ecosystem", "no-polling", "reuse-ipc"],
+    "source": "komorebi README (Window Manager Event Subscriptions)"
+  },
+  {
+    "id": "comp-012",
+    "title": "Unfocused window dimming/opacity (static, no animation)",
+    "severity": "low",
+    "category": "ux",
+    "description": "komorebi's unfocused-window transparency is a popular visual cue. We already highlight focus with border color; opacity would differentiate further. Static DWM opacity is a single attribute set per focus change — no animation loop, so it does not violate the guardrail.",
+    "recommendation": "Optional config flag; DwmSetWindowAttribute opacity 85% on unfocused managed windows, 100% on focus. Wire into the existing borders tick focus-color branch. Ship after higher-impact items.",
+    "tags": ["visual", "guardrail-compatible"],
+    "source": "komorebi README demo (unfocused transparency)"
+  },
+  {
+    "id": "comp-013",
+    "title": "RAM footprint stays our differentiator — keep it that way",
+    "severity": "info",
+    "category": "performance",
+    "description": "Current standings: Mr. Space ~16 MB daemon (32 MB working set with tiling on) vs komorebi ~30–60 MB (Rust but with UDS/subscriber infra) vs GlazeWM v3 ~50–100 MB (C#/.NET) vs FancyZones (PowerToys runtime, heavy). Every feature above was filtered to be event-driven or one-shot — none adds a polling loop or scripting runtime. That is what lets us adopt competitors' best UX without their memory profile.",
+    "recommendation": "Before merging each feature, re-run the idle-CPU delta and private-bytes check from Tier 1.1 verification. Reject any design that needs a timer thread.",
+    "tags": ["guardrail", "positioning"],
+    "source": "ROADMAP.md competitor matrix + Tier 1.1 verification numbers"
+  },
+  {
+    "id": "comp-014",
+    "title": "What NOT to copy: named workspaces, bars, and BSP trees",
+    "severity": "info",
+    "category": "tech-debt",
+    "description": "Three competitor pillars are deliberately out of scope: (1) GlazeWM named workspaces with bind_to_monitor — Windows virtual desktops already exist and our GUID memory tracks them; building a parallel workspace layer duplicates the OS and doubles state. (2) Bundled status bars (zebar/yasb) — banned by guardrail; the event stream (comp-011) serves the same audience. (3) Full BSP trees — they require recursive layout state that breaks the flat-Vec memory model; comp-002's split-hint approximation gives 80% of the benefit.",
+    "recommendation": "Keep these as explicit non-goals in ROADMAP so scope stays honest; revisit only if users demand workspace features the OS cannot pass through.",
+    "tags": ["non-goals", "scope-guard"],
+    "source": "GlazeWM v3 README (workspaces); komorebi ecosystem (bars)"
+  }
+]

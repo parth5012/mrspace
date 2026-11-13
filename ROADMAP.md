@@ -136,13 +136,38 @@ zero idle wakeups) with a 150 ms debounce.
 - Acceptance: state JSON â¤ 2 KB for 10 managed windows; subscription survives a
   client reconnect; no new threads per subscriber beyond the socket read.
 
-### 9. Layout-change preview overlay
+### 9. Layout-change preview overlay *(status: done - 2026-11-13)*
 FancyZones' best idea, implemented with our border-overlay machinery (`borders.rs`):
 show the destination layout as outlined regions for ~800 ms after layout-cycle
 before committing. Acceptance: overlay never traps focus; excluded when tiling is off.
+- `preview.rs` (new): layout-cycle first press draws translucent ghost regions
+  (solid ring + 64-alpha interior, click-through layered windows from
+  `borders::create_ghost`) of the next preset; pressing again inside the 800 ms
+  window advances to the next preset and restarts the timer; commit applies the
+  last shown preset. Tiling off → legacy immediate cycle.
+- Geometry comes from `apply_or_preview(name, apply=false)` — every preset
+  (grid/columns/rows/main-*/focus) can compute its slots without moving
+  windows, so the preview is always exactly what will be applied, min-size
+  rules included. Zero steady-state cost: the preview thread sleeps on a
+  condvar while idle, no polling.
 
 ### 10. Binding modes (status: done - 2026-11-12)
 - `modes.rs` (new): `MODE: Mutex<String>`; `current`, `enter`, `exit`, `action_for`.
   Modes: resize (arrows nudge), move (arrows move window). Esc exits move mode.
 - IPC: `enter-mode <name>`. Hotkey Win+V enters move mode; Win+R toggles resize.
 - Acceptance: build clean; mode entry via IPC verified ("mode move"/"mode base").
+
+### 11. Scratchpad crash safety *(status: done - 2026-11-13)*
+- Parked windows are persisted to `%APPDATA%\mrspace\parked.json` on every
+  park/summon (hwnd + pid + title + saved rect). A daemon that dies (crash or
+  forced kill) leaves parked windows stranded offscreen — the next daemon
+  start restores any entry whose hwnd is still alive, belongs to the same
+  pid, and carries the same title (guards against Windows recycling handle
+  values), then removes the file.
+
+### 12. Drag-to-tile *(status: parked — revisit later)*
+FancyZones' signature mouse interaction: drag a window onto an edge strip
+(left/right/top/bottom/center=maximize), flash the pin region on hover, pin on
+release. Design note: track drags from the existing WinEvent tick with
+GetAsyncKeyState(LBUTTON) — no new polling loop. Parked 2026-11-13; revisit
+after multi-monitor tiling (the larger functional gap).
