@@ -5,7 +5,7 @@
 //! everything runs inside the re-tiler's event wake).
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, OnceLock};
 
 use windows_sys::core::GUID;
 
@@ -44,23 +44,67 @@ fn guid_eq(a: &GUID, b: &GUID) -> bool {
 /// probe (a window always lands on the active desktop). The probe is cached
 /// for 200 ms so rapid event bursts don't spawn windows each tick.
 pub fn current_guid() -> Option<GUID> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    static LAST_TEMP: Mutex<Option<(GUID, u64)>> = Mutex::new(None);
+    probe_desktop()
+}
 
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-    // cache probe within 1000 ms so rapid event bursts and the 300 ms
-    // switch animation don't each spawn a temp window
-    if let Ok(g) = LAST_TEMP.lock() {
-        if let Some((g0, t)) = *g {
-            if now.saturating_sub(t) < 1000 {
-                return Some(g0);
+// Desktop probing runs on a DEDICATED thread, never on the retile/hook/preview
+// threads. Rationale (WER AppHang reports): `VirtualDesktopManager` COM +
+// creating a temp window inline on a thread that never pumps messages is a
+// deadlock recipe — an apartment-threaded COM object + a window that can
+// receive synchronous messages, both hosted on a no-pump thread. The prober
+// initializes COM as MTA (pump-free), owns the temp window + 300 ms settle
+// sleep, and answers requests over a channel; callers wait with a bounded
+// timeout so no hot path (retile wake, layout commit) can ever hang on this.
+static PROBER: OnceLock<std::sync::mpsc::Sender<std::sync::mpsc::SyncSender<Option<GUID>>>> =
+    OnceLock::new();
+
+/// Last probe result cache lives inside the prober (rapid event bursts and
+/// the 300 ms switch animation shouldn't each spawn a temp window).
+const CACHE_MS: u128 = 1000;
+/// Hard ceiling a caller will wait for a fresh probe.
+const REPLY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(700);
+
+fn probe_desktop() -> Option<GUID> {
+    use std::sync::mpsc;
+    use std::time::Instant;
+    let tx = PROBER.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<mpsc::SyncSender<Option<GUID>>>();
+        std::thread::spawn(move || {
+            // MTA: cross-apartment COM calls are handled internally, no message
+            // pumping required on this thread — ever.
+            unsafe {
+                let _ = windows_sys::Win32::System::Com::CoInitializeEx(
+                    std::ptr::null(),
+                    windows_sys::Win32::System::Com::COINIT_MULTITHREADED as u32,
+                );
             }
-        }
+            let mut cached: Option<(GUID, Instant)> = None;
+            for reply in rx {
+                let now = Instant::now();
+                if let Some((g, t)) = cached {
+                    if now.duration_since(t).as_millis() < CACHE_MS {
+                        let _ = reply.send(Some(g));
+                        continue;
+                    }
+                }
+                let g = do_probe();
+                if let Some(g) = g {
+                    cached = Some((g, now));
+                }
+                let _ = reply.send(g);
+            }
+        });
+        tx
+    });
+    let (rtx, rrx) = mpsc::sync_channel(1);
+    if tx.send(rtx).is_err() {
+        return None;
     }
+    rrx.recv_timeout(REPLY_TIMEOUT).ok().flatten()
+}
 
-    let mut v = crate::virtual_desktop::VirtualDesktopManager::new().ok()?;
-    let v = &v;
-
+fn do_probe() -> Option<GUID> {
+    let v = crate::virtual_desktop::VirtualDesktopManager::new().ok()?;
     let temp = crate::desktop::create_temp_window();
     if temp.is_null() {
         return None;
@@ -72,17 +116,8 @@ pub fn current_guid() -> Option<GUID> {
         fn drop(&mut self) { crate::desktop::destroy_window(self.0); }
     }
     let _guard = TempGuard(temp);
-    let g = v.current_desktop_id(temp).ok();
-    if let Some(g) = g {
-        if let Ok(mut c) = LAST_TEMP.lock() {
-            *c = Some((g, now));
-        }
-    }
-    g
+    v.current_desktop_id(temp).ok()
 }
-
-// VDM is now created fresh per current_guid() call (not shared across threads —
-// COM STA objects cannot be marshaled across apartments safely).
 
 /// Record the layout the user just applied for the desktop they're viewing.
 pub fn note_layout(name: &str) {

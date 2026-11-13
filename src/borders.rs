@@ -221,6 +221,16 @@ unsafe fn tick() {
             to_remove.push(*tgt);
             continue;
         }
+        // Cloaked = living on another virtual desktop (or suspended UWP).
+        // Its rect still resolves, so without this check its ring paints over
+        // the CURRENT desktop as a floating colored box doing nothing.
+        if crate::win32::is_cloaked(th) {
+            if e.overlay != 0 && !e.hidden {
+                windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(e.overlay as HWND, SW_HIDE);
+                e.hidden = true;
+            }
+            continue;
+        }
         let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
         if GetWindowRect(th, &mut r) == 0 {
             to_remove.push(*tgt);
@@ -378,14 +388,18 @@ unsafe fn redraw_overlay(hwnd: HWND, w: i32, h: i32, x: i32, y: i32, color: u32,
     }
     SelectObject(mem_dc, hbmp as *mut _);
 
-    // fill: transparent (or translucent) interior, opaque ring (premultiplied
-    // alpha, a=255 == solid color as-is)
+    // fill: opaque ring, translucent interior (premultiplied alpha, a=255 ==
+    // solid color as-is). Interior color must be PREMULTIPLIED by its alpha
+    // (AC_SRC_ALPHA) — raw color with low alpha renders as garbage on some
+    // GPU/DWM combos.
     let px = bits as *mut u32;
     let stride = w as usize;
     let bw = opts().thickness.clamp(1, 20) as usize;
     let (cw, ch) = (w as usize, h as usize);
     let fill = color | (0xFFu32 << 24);
-    let inner = color | (fill_alpha << 24);
+    let fa = fill_alpha.min(255);
+    let premul = |c: u32| ((c & 0xFF) * fa / 255) | (((c >> 8) & 0xFF) * fa / 255) << 8 | (((c >> 16) & 0xFF) * fa / 255) << 16;
+    let inner = premul(color) | (fa << 24);
     for row in 0..ch {
         for col in 0..cw {
             let on_ring =

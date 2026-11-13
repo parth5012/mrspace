@@ -60,8 +60,13 @@ pub fn window_rect(hwnd: HWND) -> Option<RECT> {
 
 /// True when the window is cloaked by DWM — i.e. it lives on another virtual
 /// desktop or is a suspended UWP frame. Cheap, in-proc, never cross-process.
+/// Dead/stale hwnds (winmgmt churn between enumeration and use) return false —
+/// DWM would otherwise log a spurious 80070006 per call.
 pub fn is_cloaked(hwnd: HWND) -> bool {
     use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+    if unsafe { windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(hwnd) } == 0 {
+        return false;
+    }
     let mut val: u32 = 0;
     unsafe {
         DwmGetWindowAttribute(

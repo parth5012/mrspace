@@ -113,8 +113,36 @@ fn set_dpi_aware() {
     }
 }
 
+/// Log every Rust panic to %APPDATA%\mrspace\crash.log with timestamp +
+/// location. A panic inside an extern "system" callback (keyboard hook,
+/// WinEvent proc, wndproc) aborts the whole process across the FFI boundary
+/// WITHOUT a Windows Error Report — this is the only way to see those.
+fn install_panic_log() {
+    std::panic::set_hook(Box::new(|info| {
+        use std::io::Write;
+        let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
+        let path = std::path::PathBuf::from(base).join("mrspace").join("crash.log");
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let loc = info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_default();
+            let _ = writeln!(f, "[{}] panic at {}: {}", chrono_now(), loc, info);
+        }
+    }));
+}
+
+fn chrono_now() -> String {
+    // unix epoch seconds, no external time crate
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_else(|_| "?".into())
+}
+
 fn main() {
     set_dpi_aware();
+    install_panic_log();
     resize::init();
     tiling::init();
     let cli = Cli::parse();
