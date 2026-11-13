@@ -138,6 +138,37 @@ pub fn class_name(hwnd: HWND) -> String {
     OsString::from_wide(&buf[..n as usize]).to_string_lossy().to_string()
 }
 
+/// Minimum tracking size a window will clamp SetWindowPos to (e.g. modern
+/// Paint enforces 704x500 logical — 1056x750 physical at 150% scaling, which
+/// is bigger than a half-screen tile and used to break the grid). Queried via
+/// WM_GETMINMAXINFO with a bounded timeout: hung windows yield (0, 0) and get
+/// the nominal tile (previous behavior) instead of stalling the re-tiler.
+pub fn min_track_size(hwnd: HWND) -> (i32, i32) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SendMessageTimeoutW, MINMAXINFO, SMTO_ABORTIFHUNG, SMTO_NORMAL,
+        SM_CXMAXTRACK, SM_CXMINTRACK, SM_CYMAXTRACK, SM_CYMINTRACK, WM_GETMINMAXINFO,
+    };
+    unsafe {
+        let mut mmi: MINMAXINFO = std::mem::zeroed();
+        mmi.ptMaxTrackSize.x = GetSystemMetrics(SM_CXMAXTRACK);
+        mmi.ptMaxTrackSize.y = GetSystemMetrics(SM_CYMAXTRACK);
+        mmi.ptMinTrackSize.x = GetSystemMetrics(SM_CXMINTRACK);
+        mmi.ptMinTrackSize.y = GetSystemMetrics(SM_CYMINTRACK);
+        let mut res: usize = 0;
+        let ok = SendMessageTimeoutW(
+            hwnd,
+            WM_GETMINMAXINFO,
+            0,
+            &mut mmi as *mut _ as isize,
+            SMTO_NORMAL | SMTO_ABORTIFHUNG,
+            150,
+            &mut res,
+        );
+        if ok == 0 { return (0, 0); }
+        (mmi.ptMinTrackSize.x, mmi.ptMinTrackSize.y)
+    }
+}
+
 pub fn work_area_for(hwnd: HWND) -> RECT {
     use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO};
     let hmon = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };

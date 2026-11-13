@@ -26,9 +26,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::UI::Controls::{
     DRAWITEMSTRUCT, ODS_DISABLED, ODS_SELECTED, ODT_BUTTON, ODT_LISTBOX, ODT_STATIC, SetWindowTheme,
 };
-use windows_sys::Win32::UI::HiDpi::{
-    GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-};
+use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetDlgCtrlID, GetDlgItem,
     GetMessageW, GetParent, GetPropW, GetWindowTextW, IsDialogMessageW, MoveWindow,
@@ -307,9 +305,9 @@ unsafe fn make_theme() -> Theme {
 
 pub fn show() {
     unsafe {
-        // Opt into real pixel coordinates so the layout is crisp at any display
-        // scaling (Windows otherwise virtualizes a DPI-unaware process).
-        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        // DPI awareness is set once in main() for the whole process — do NOT
+        // flip it here: changing awareness mid-run changes the coordinate
+        // space under the tiler and mis-positions every tiled window.
         let _ = DPI.set(GetDpiForSystem());
 
         let class_name = wide(CLASS_NAME);

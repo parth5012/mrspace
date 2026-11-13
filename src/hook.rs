@@ -6,6 +6,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, SetWindowsHookExW, DispatchMessageW, TranslateMessage,
     KBDLLHOOKSTRUCT, LLKHF_UP, WH_KEYBOARD_LL, MSG, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN,
@@ -82,9 +83,12 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 }
                 return CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam);
             }
-            // action key: only consumed while Win is held *and* it is mapped
+            // action key: only consumed while Win is held *and* it is mapped.
+            // If Ctrl is also held, let Windows handle it (Ctrl+Win+Arrow =
+            // desktop switch, Ctrl+Win+D = new desktop, etc.).
+            let ctrl_held = unsafe { GetAsyncKeyState(0x11) as u32 & 0x8000 != 0 };
             let held = state.win_down.load(Ordering::Relaxed);
-            if held && is_down {
+            if held && is_down && !ctrl_held {
                 if is_action_key(vk) {
                     state.acted.store(true, Ordering::Relaxed);
                     let _ = state.tx.send(vk);
@@ -110,7 +114,7 @@ fn is_action_key(vk: u32) -> bool {
         0x25..=0x28          // arrows
         | 0x20               // Space (palette)
         | 0xBB | 0xBD        // +/= and -/_
-        | 0x4D | 0x47 | 0x4F | 0x54 | 0x48 | 0x4A | 0x4B | 0x4C | 0x52 | 0x4E | 0x50 | 0x46 | 0x53 | 0x41 | 0x56
+        | 0x4D | 0x47 | 0x4F | 0x54 | 0x48 | 0x4A | 0x4B | 0x4C | 0x52 | 0x4E | 0x50 | 0x46 | 0x53 | 0x41 | 0x56 | 0x59 | 0x55
         | 0x31..=0x39        // 1–9 desktop numbers
         | 0x1B               // Esc (resize-mode exit)
     )
@@ -174,6 +178,8 @@ fn execute(vk: u32) {
         0x4D /*M*/ => "maximize",
         0x47 /*G*/ => "fit-all",
         0x4F /*O*/ => "layout-cycle",
+        0x59 /*Y*/ => "park",
+        0x55 /*U*/ => "summon",
         0x46 /*F*/ => "toggle-float",
         0x53 /*S*/ => "swap-next",
         0x41 /*A*/ => "promote",
@@ -209,6 +215,8 @@ fn execute(vk: u32) {
         "pin-bottom" if rm => crate::resize::nudge("down"),
         "resize-mode" => crate::resize::toggle(),
         "move-mode" => crate::modes::enter("move"),
+        "park" => { let h = crate::win32::foreground(); if !h.is_null() { crate::scratchpad::park(h); } },
+        "summon" => { crate::scratchpad::summon(); },
         _ => crate::daemon::execute_action(action),
     }
 }

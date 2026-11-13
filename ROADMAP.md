@@ -7,6 +7,9 @@ must pay for itself in wakeups, not cost too much in memory.
 ## Baseline (where we are)
 
 - 9 on-demand layouts (grid, columns-2/3, rows-2, main-left/right/top/bottom, focus) + cycle
+  — all min-size-aware: per-window WM_GETMINMAXINFO minimums are honored (column counts
+  shrink before overlap; overflow past the edge is accepted as the last resort, never overlap)
+  and the daemon is per-monitor DPI aware, so tiles are exact at any display scaling.
 - Pin-tiling with count-diff re-tile (1 s poller), focus walking, chord resize-mode
 - Virtual-desktop nav (next/prev/move), border overlays (accent/muted), exclusions
 - Win-key chord engine, palette, settings GUI, TCP IPC (port 17331), Flow Launcher plugin

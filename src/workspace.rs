@@ -67,8 +67,12 @@ pub fn current_guid() -> Option<GUID> {
     }
     crate::win32::show(temp);
     std::thread::sleep(std::time::Duration::from_millis(300));
+    struct TempGuard(windows_sys::Win32::Foundation::HWND);
+    impl Drop for TempGuard {
+        fn drop(&mut self) { crate::desktop::destroy_window(self.0); }
+    }
+    let _guard = TempGuard(temp);
     let g = v.current_desktop_id(temp).ok();
-    crate::desktop::destroy_window(temp);
     if let Some(g) = g {
         if let Ok(mut c) = LAST_TEMP.lock() {
             *c = Some((g, now));

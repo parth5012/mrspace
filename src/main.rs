@@ -99,7 +99,21 @@ enum Commands {
 
 fn cfg() -> Config { config::load() }
 
+/// Opt into real pixel coordinates for the whole process, before any window
+/// exists. Without this the daemon runs DPI-unaware: on a 150%-scaled display
+/// every coordinate it reads/writes is virtualized (×1/1.5), and when the
+/// settings window flips awareness mid-run the coordinate space changes
+/// under the tiler — tiles overlap and run off-screen (the "bad layout" bug).
+fn set_dpi_aware() {
+    use windows_sys::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+    unsafe {
+        // Fails harmlessly if awareness was already set (or unsupported).
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+}
+
 fn main() {
+    set_dpi_aware();
     resize::init();
     tiling::init();
     let cli = Cli::parse();
